@@ -1,0 +1,17 @@
+EXPORTS
+	DllMain							@1
+	TSReader_Init					@2
+	TSReader_DeInit					@3
+	TSReader_Start					@4
+	TSReader_Stop					@5
+	TSReader_Tune					@6
+	TSReader_GetDescription			@7
+	TSReader_ParseCommandLine		@8
+	TSReader_TuneDialog				@9
+	TSReader_PIDManagement			@10
+	TSReader_IsPIDActive			@11
+	TSReader_SetChannel				@12
+	TSReader_GetSignalString		@13
+	TSReader_GetTunerString			@14
+	TSReader_SendDiSEqC				@15
+	TSReader_GetSyncLossCount		@16

@@ -7463,6 +7463,7 @@ void CleanupMPEGParsingThread(HWND hDlg)
 	if (v->dvbtot.pDescriptors != NULL)
 		LocalFree(v->dvbtot.pDescriptors);
 	memset(&v->dvbtot, 0, sizeof(v->dvbtot));
+	ResetEPGStreamTime();
 
 #ifdef DEBUG_MESSAGES
 	OutputDebugString("CleanupMPEGParsingThread: RRT\n");

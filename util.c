@@ -548,10 +548,66 @@ void ConvertATSCDateTime(DWORD dwGPSTime, SYSTEMTIME * st)
 	}
 }
 
-BOOL EventInPast(PEITEVENT pEvent, BOOL fAllowPastEITData)
+// Current time for EPG purposes as a UTC FILETIME, according to v->nEPGTimeSource.
+// Returns FALSE when the stream is the time source but no TDT/TOT/STT has been seen
+// yet; *plnNow is then the PC clock.
+BOOL GetEPGNow(DWORD64 * plnNow)
 {
 	SYSTEMTIME stSystemTime;
-	FILETIME ftProgramEnd, ftNow;
+
+	switch (v->nEPGTimeSource)
+	{
+	case EPG_TIME_SOURCE_USER:
+		*plnNow = v->nEPGUserTime;
+		return TRUE;
+	case EPG_TIME_SOURCE_STREAM:
+		{
+			__int64 nStreamTime = InterlockedCompareExchange64(&v->nEPGStreamTime, 0, 0);
+			if (nStreamTime != 0)
+			{
+				// Stream time moves on in real time between TDT/TOT updates
+				*plnNow = nStreamTime + (GetTickCount64() - v->nEPGStreamTimeTick) * (DWORD64)10000;
+				return TRUE;
+			}
+		}
+		GetSystemTime(&stSystemTime);
+		SystemTimeToFileTime(&stSystemTime, (FILETIME *)plnNow);
+		return FALSE;
+	default:
+		GetSystemTime(&stSystemTime);
+		SystemTimeToFileTime(&stSystemTime, (FILETIME *)plnNow);
+		return TRUE;
+	}
+}
+
+// Called by the parser for each TDT, TOT and STT (all UTC)
+void SetEPGStreamTime(int nYear, int nMonth, int nDay, int nHour, int nMinute, int nSecond)
+{
+	SYSTEMTIME st;
+	__int64 nTime;
+
+	memset(&st, 0, sizeof(st));
+	st.wYear = nYear;
+	st.wMonth = nMonth;
+	st.wDay = nDay;
+	st.wHour = nHour;
+	st.wMinute = nMinute;
+	st.wSecond = nSecond;
+	if (SystemTimeToFileTime(&st, (FILETIME *)&nTime))
+	{
+		v->nEPGStreamTimeTick = GetTickCount64();
+		InterlockedExchange64(&v->nEPGStreamTime, nTime);
+	}
+}
+
+void ResetEPGStreamTime()
+{
+	InterlockedExchange64(&v->nEPGStreamTime, 0);
+}
+
+BOOL EventInPast(PEITEVENT pEvent, BOOL fAllowPastEITData)
+{
+	FILETIME ftProgramEnd;
 	DWORD64 lnProgramEnd, lnNow;
 	DWORD64 lnMultiplier = 10000000;
 	DWORD64 lnRunTime = ( (pEvent->stRunTime.wHour * 60 * 60)
@@ -561,9 +617,9 @@ BOOL EventInPast(PEITEVENT pEvent, BOOL fAllowPastEITData)
 	if (fAllowPastEITData)
 		return FALSE;
 
-	GetSystemTime(&stSystemTime);
-	SystemTimeToFileTime(&stSystemTime, &ftNow);
-	memcpy(&lnNow, &ftNow, sizeof(DWORD64));
+	// Without a known "now" (stream time not seen yet) keep everything
+	if (!GetEPGNow(&lnNow))
+		return FALSE;
 
 	SystemTimeToFileTime(&pEvent->stStartTime, &ftProgramEnd);
 	memcpy(&lnProgramEnd, &ftProgramEnd, sizeof(DWORD64));
@@ -599,10 +655,9 @@ void ExpireOldEITData(int nServiceID)
 	{
 		PEITEVENT pCurrent, pPrior = NULL;
 		DWORD64 lnNow;
-		SYSTEMTIME stSystemTime;
 
-		GetSystemTime(&stSystemTime);
-		SystemTimeToFileTime(&stSystemTime, (FILETIME *)&lnNow);
+		if (!GetEPGNow(&lnNow))
+			return;
 
 		pCurrent = v->pEvents[nServiceID];
 		if (pCurrent != NULL)

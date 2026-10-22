@@ -2791,6 +2791,7 @@ BOOL ParsePSIPPacket(BYTE * pSectionPointer, int nPacketLength)
 					v->dvbtdt.nDaylightSavings = daylight_savings;
 					v->dvbtdt.nGPSOffset = GPS_UTC_offset;
 					v->dvbtdt.fSTTSeen = TRUE;
+					SetEPGStreamTime(st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
 					PostMessage(v->hDlgSIParser, WM_USER + 2, SI_PARSER_TDT, 0);
 				}
 			}
@@ -3552,6 +3553,8 @@ void ParseDVBTDTPacket(BYTE * pSectionPointer, int nPacketLength)
 				nTime = pSectionPointer[5] << 16 | pSectionPointer[6] << 8 | pSectionPointer[7];
 				ConvertDVBDate(nMJD, &v->dvbtdt.nYear, &v->dvbtdt.nMonth, &v->dvbtdt.nDay);
 				ConvertDVBTime(nTime, &v->dvbtdt.nHour, &v->dvbtdt.nMinute, &v->dvbtdt.nSecond);			
+				SetEPGStreamTime(v->dvbtdt.nYear, v->dvbtdt.nMonth, v->dvbtdt.nDay,
+								 v->dvbtdt.nHour, v->dvbtdt.nMinute, v->dvbtdt.nSecond);
 				PostMessage(v->hDlgSIParser, WM_USER + 2, SI_PARSER_TDT, 0);
 				pSectionPointer += 8; nPacketLength -= 8;
 			}
@@ -3582,6 +3585,8 @@ void ParseDVBTDTPacket(BYTE * pSectionPointer, int nPacketLength)
 
 				ConvertDVBDate(nMJD, &v->dvbtot.nYear, &v->dvbtot.nMonth, &v->dvbtot.nDay);
 				ConvertDVBTime(nUTC, &v->dvbtot.nHour, &v->dvbtot.nMinute, &v->dvbtot.nSecond);			
+				SetEPGStreamTime(v->dvbtot.nYear, v->dvbtot.nMonth, v->dvbtot.nDay,
+								 v->dvbtot.nHour, v->dvbtot.nMinute, v->dvbtot.nSecond);
 
 				if (descriptor_loop_length)
 				{

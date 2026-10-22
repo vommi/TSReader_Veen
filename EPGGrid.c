@@ -29,9 +29,157 @@ void GetEITSource(char * szSource, PEITEVENT pEvent);
 void GetRetuneCommandLineParameters(char * szCommandLine, int nNITIndex);
 BOOL CALLBACK EPGGridSettingsDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 BOOL EventInPast(PEITEVENT pEvent, BOOL fAllowPastEITData);
+BOOL GetEPGNow(DWORD64 * plnNow);
 int GetLogicalChannelNumber(int nProgramNumber);
+void SetupHorizontalScrollRange(HWND hWnd);
 
 BOOL fShownScreenEventsWarning;
+
+#define EPG_TITLE_TIMER 2			// timer 1 is used by EPGPaint when there are no events
+BOOL fEPGWaitingForStreamTime;		// grid opened before the first TDT/TOT - jump to it when it arrives
+
+// Move the grid so it starts at "now" according to the selected EPG time source
+void EPGGotoNow(HWND hWnd)
+{
+	DWORD64 lnNow;
+	SYSTEMTIME st;
+
+	fEPGWaitingForStreamTime = !GetEPGNow(&lnNow);
+	FileTimeToSystemTime((FILETIME *)&lnNow, &st);
+	st.wSecond = 0;
+	st.wMilliseconds = 0;
+	if (st.wMinute < 30)
+		st.wMinute = 0;
+	else
+		st.wMinute = 30;
+	SystemTimeToFileTime(&st, (FILETIME *)&v->epg.nStartDisplayTime);
+	v->epg.nActualStartTime = v->epg.nStartDisplayTime;
+	SetupHorizontalScrollRange(hWnd);
+	InvalidateRect(hWnd, NULL, FALSE);
+}
+
+// Window title shows the EPG time source and its current time (local)
+void UpdateEPGTitle(HWND hWnd)
+{
+	static const char * szSources[] = {"Stream time (TDT/TOT)", "PC clock", "Set time"};
+	DWORD64 lnNow;
+	SYSTEMTIME st, stLocal;
+	BOOL fKnown;
+	char szTitle[256];
+
+	fKnown = GetEPGNow(&lnNow);
+	FileTimeToSystemTime((FILETIME *)&lnNow, &st);
+	SystemTimeToTzSpecificLocalTime(NULL, &st, &stLocal);
+	if (fKnown)
+		wsprintf(szTitle, "EPG Grid - %s: %04d/%02d/%02d %02d:%02d:%02d",
+				 szSources[v->nEPGTimeSource], stLocal.wYear, stLocal.wMonth, stLocal.wDay,
+				 stLocal.wHour, stLocal.wMinute, stLocal.wSecond);
+	else
+		wsprintf(szTitle, "EPG Grid - Stream time (TDT/TOT): waiting for TDT/TOT, showing PC clock %04d/%02d/%02d %02d:%02d:%02d",
+				 stLocal.wYear, stLocal.wMonth, stLocal.wDay, stLocal.wHour, stLocal.wMinute, stLocal.wSecond);
+	SetWindowText(hWnd, szTitle);
+}
+
+void UpdateEPGTimeSourceMenu(HWND hWnd)
+{
+	HMENU hMenu = GetMenu(hWnd);
+
+	if (hMenu != NULL)
+		CheckMenuRadioItem(hMenu, ID_EPG_TIME_STREAM, ID_EPG_TIME_USER,
+						   ID_EPG_TIME_STREAM + v->nEPGTimeSource, MF_BYCOMMAND);
+}
+
+void CreateEPGTimeSourceMenu(HWND hWnd)
+{
+	HMENU hMenuBar = CreateMenu();
+	HMENU hMenuTime = CreatePopupMenu();
+
+	AppendMenu(hMenuTime, MF_STRING, ID_EPG_TIME_STREAM, "&Stream time (TDT/TOT)");
+	AppendMenu(hMenuTime, MF_STRING, ID_EPG_TIME_PC, "&PC clock");
+	AppendMenu(hMenuTime, MF_STRING, ID_EPG_TIME_USER, "Set &date and time...\tT");
+	AppendMenu(hMenuTime, MF_SEPARATOR, 0, NULL);
+	AppendMenu(hMenuTime, MF_STRING, ID_EPG_TIME_GOTO_NOW, "Go to &now\tN");
+	AppendMenu(hMenuBar, MF_POPUP, (UINT_PTR)hMenuTime, "&Time Source");
+	SetMenu(hWnd, hMenuBar);
+	UpdateEPGTimeSourceMenu(hWnd);
+}
+
+BOOL CALLBACK EPGSetTimeDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
+{
+	switch(uMsg)
+	{
+	case WM_INITDIALOG:
+		{
+			DWORD64 lnNow;
+			SYSTEMTIME st, stLocal;
+
+			GetEPGNow(&lnNow);
+			FileTimeToSystemTime((FILETIME *)&lnNow, &st);
+			SystemTimeToTzSpecificLocalTime(NULL, &st, &stLocal);
+			DateTime_SetSystemtime(GetDlgItem(hDlg, IDC_EPG_TIME_DATE), GDT_VALID, &stLocal);
+			DateTime_SetSystemtime(GetDlgItem(hDlg, IDC_EPG_TIME_TIME), GDT_VALID, &stLocal);
+		}
+		return TRUE;
+	case WM_CLOSE:
+		EndDialog(hDlg, FALSE);
+		break;
+	case WM_COMMAND:
+		switch(LOWORD(wParam))
+		{
+		case IDCANCEL:
+			EndDialog(hDlg, FALSE);
+			break;
+		case IDOK:
+			{
+				SYSTEMTIME stDate, stTime, stUTC;
+
+				memset(&stDate, 0, sizeof(stDate));
+				memset(&stTime, 0, sizeof(stTime));
+				DateTime_GetSystemtime(GetDlgItem(hDlg, IDC_EPG_TIME_DATE), &stDate);
+				DateTime_GetSystemtime(GetDlgItem(hDlg, IDC_EPG_TIME_TIME), &stTime);
+				stDate.wHour = stTime.wHour;
+				stDate.wMinute = stTime.wMinute;
+				stDate.wSecond = stTime.wSecond;
+				stDate.wMilliseconds = 0;
+				TzSpecificLocalTimeToSystemTime(NULL, &stDate, &stUTC);
+				SystemTimeToFileTime(&stUTC, (FILETIME *)&v->nEPGUserTime);
+				EndDialog(hDlg, TRUE);
+			}
+			break;
+		}
+		break;
+	}
+
+	return FALSE;
+}
+
+void SetEPGTimeSource(HWND hWnd, int nSource)
+{
+	if (nSource == EPG_TIME_SOURCE_USER)
+	{
+		if (DialogBox(v->hInstance, MAKEINTRESOURCE(IDD_EPG_SET_TIME), hWnd, EPGSetTimeDlgProc) != TRUE)
+			return;
+	}
+	v->nEPGTimeSource = nSource;
+	UpdateEPGTimeSourceMenu(hWnd);
+	UpdateEPGTitle(hWnd);
+	EPGGotoNow(hWnd);
+}
+
+// Scheduling a recording is about the real world, so it always uses the PC clock
+BOOL EventInPastPC(PEITEVENT pEvent)
+{
+	SYSTEMTIME stSystemTime;
+	DWORD64 lnProgramEnd, lnNow;
+	DWORD64 lnRunTime = ( (pEvent->stRunTime.wHour * 60 * 60)
+					    + (pEvent->stRunTime.wMinute * 60)
+						+ (pEvent->stRunTime.wSecond) ) * (DWORD64)10000000;
+
+	GetSystemTime(&stSystemTime);
+	SystemTimeToFileTime(&stSystemTime, (FILETIME *)&lnNow);
+	SystemTimeToFileTime(&pEvent->stStartTime, (FILETIME *)&lnProgramEnd);
+	return lnProgramEnd + lnRunTime <= lnNow;
+}
 
 int GetEITOffset(int nProgramNumber)
 {
@@ -2232,7 +2380,7 @@ void ScheduleRecording(HWND hWnd, LPARAM lParam, WORD wPreRoll, WORD wPostRoll)
 	}
 
 	// Check for events completely in the past
-	if (EventInPast(v->epg.pSelectedEvent, FALSE) == TRUE)
+	if (EventInPastPC(v->epg.pSelectedEvent) == TRUE)
 	{
 		MessageBox(hWnd, "This event is in the past and despite many saying TSReader is great\nsoftware, it doesn't currently contain any time travel functions...", gszAppName, MB_ICONINFORMATION);
 		return;
@@ -2591,16 +2739,12 @@ LRESULT FAR PASCAL EPGridWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPar
 			v->epg.nSelectedChannel = -1;
 			v->epg.fHideChannelSelectMode = FALSE;
 			SendMessage(hWnd, WM_SETICON, ICON_BIG, (LPARAM)v->hDialogIcon);
-			GetSystemTime(&stLocal);
-			stLocal.wSecond = 0;
-			stLocal.wMilliseconds = 0;
-			if (stLocal.wMinute < 30)
-				stLocal.wMinute = 0;
-			else
-				stLocal.wMinute = 30;
-			SystemTimeToFileTime(&stLocal, (FILETIME *)&v->epg.nStartDisplayTime);
-			v->epg.nActualStartTime = v->epg.nStartDisplayTime;
-			SetupHorizontalScrollRange(hWnd);
+			if (v->nEPGTimeSource < EPG_TIME_SOURCE_STREAM || v->nEPGTimeSource > EPG_TIME_SOURCE_PC)
+				v->nEPGTimeSource = EPG_TIME_SOURCE_STREAM;	// a set time is not kept between sessions
+			CreateEPGTimeSourceMenu(hWnd);
+			EPGGotoNow(hWnd);
+			UpdateEPGTitle(hWnd);
+			SetTimer(hWnd, EPG_TITLE_TIMER, 1000, NULL);
 
 			// Count number of EIT channels for the vertical scroll
 			v->epg.nVerticalScrollPos = 0;
@@ -2656,6 +2800,7 @@ LRESULT FAR PASCAL EPGridWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPar
 		}
 		break;
 	case WM_DESTROY:
+		KillTimer(hWnd, EPG_TITLE_TIMER);
 		v->fEPGDisplayActive = FALSE;
 		Sleep(100);
 		{
@@ -2727,10 +2872,34 @@ LRESULT FAR PASCAL EPGridWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPar
 			if (DialogBox(v->hInstance, MAKEINTRESOURCE(IDD_EPG_SCHEDULE_SETTINGS), hWnd, EPGScheduleSettingsDlgProc) == TRUE)
 				InvalidateRect(hWnd, NULL, FALSE);
 			break;
+		case ID_EPG_TIME_STREAM:
+			SetEPGTimeSource(hWnd, EPG_TIME_SOURCE_STREAM);
+			break;
+		case ID_EPG_TIME_PC:
+			SetEPGTimeSource(hWnd, EPG_TIME_SOURCE_PC);
+			break;
+		case ID_EPG_TIME_USER:
+			SetEPGTimeSource(hWnd, EPG_TIME_SOURCE_USER);
+			break;
+		case ID_EPG_TIME_GOTO_NOW:
+			EPGGotoNow(hWnd);
+			break;
 		}
 		break;
 #endif LITE
 	case WM_TIMER:
+		if (wParam == EPG_TITLE_TIMER)
+		{
+			UpdateEPGTitle(hWnd);
+			// First TDT/TOT has arrived since the grid opened: move to the stream's "now"
+			if (fEPGWaitingForStreamTime && v->nEPGTimeSource == EPG_TIME_SOURCE_STREAM)
+			{
+				DWORD64 lnNow;
+				if (GetEPGNow(&lnNow))
+					EPGGotoNow(hWnd);
+			}
+			break;
+		}
 		if (GetMaxEITChannels())
 			EPGPaint(hWnd, wParam, lParam);
 		break;
@@ -2993,8 +3162,11 @@ LRESULT FAR PASCAL EPGridWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPar
 			break;
 		case 'n':
 		case 'N':
-			v->epg.nHorizontalScrollPos = 65000 / 2;
-			UpdateHorizontalScroll(hWnd);
+			EPGGotoNow(hWnd);
+			break;
+		case 't':
+		case 'T':
+			SetEPGTimeSource(hWnd, EPG_TIME_SOURCE_USER);
 			break;
 		case VK_F1:
 			MessageBox(hWnd, "Keys available in the EPG Grid:\n"
@@ -3003,7 +3175,8 @@ LRESULT FAR PASCAL EPGridWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPar
 							 "Right\t\tMove forward in time\n"
 							 "Up\t\tMove channel list up\n"
 							 "Down\t\tMove channel list down\n"
-							 "N\t\tGo to \"now\"\n"
+							 "N\t\tGo to \"now\" (see the Time Source menu)\n"
+							 "T\t\tSet the EPG date and time\n"
 #ifndef LITE
 							 "Shift+Left\tShrink time width\n"
 							 "Shift+Right\tExpand time width\n"

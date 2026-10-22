@@ -29,6 +29,9 @@ void ConvertDVBDate(int nMJD, int * nYear, int * nMonth, int * nDay);
 void ConvertDVBTime(int nBCDTime, int * nHour, int * nMinute, int * nSecond);
 void ConvertATSCDateTime(DWORD dwGPSTime, SYSTEMTIME * st);
 BOOL EventInPast(PEITEVENT pEvent, BOOL fAllowPastEITData);
+BOOL GetEPGNow(DWORD64 * plnNow);
+void SetEPGStreamTime(int nYear, int nMonth, int nDay, int nHour, int nMinute, int nSecond);
+void ResetEPGStreamTime();
 void LogDescriptor(int nDescriptorIndex, int nDescriptorTag);
 void ExpireOldEITData(int nServiceID);
 

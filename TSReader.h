@@ -1982,8 +1982,18 @@ typedef struct tag_Variables
 
 	WORD wChartMenuItems[32];
 
+	// EPG time source - what "now" means for the EPG grid and for discarding past EIT events
+	int nEPGTimeSource;				// EPG_TIME_SOURCE_STREAM, EPG_TIME_SOURCE_PC or EPG_TIME_SOURCE_USER
+	__int64 nEPGStreamTime;			// last TDT/TOT/STT time seen (UTC FILETIME), 0 = none yet
+	ULONGLONG nEPGStreamTimeTick;	// GetTickCount64() when nEPGStreamTime was received
+	__int64 nEPGUserTime;			// user-set EPG time (UTC FILETIME)
+
 	BYTE bSafety[1 * 1024 * 1024];
 } VARIABLES, *PVARIABLES;
+
+#define EPG_TIME_SOURCE_STREAM	0	// stream TDT/TOT (DVB) or STT (ATSC) - default
+#define EPG_TIME_SOURCE_PC		1	// PC clock
+#define EPG_TIME_SOURCE_USER	2	// fixed date and time chosen by the user
 
 typedef struct _tagMPEIPPACKET
 {

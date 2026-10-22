@@ -1696,6 +1696,21 @@ BEGIN
 END
 #endif
 
+IDD_EPG_SET_TIME DIALOG DISCARDABLE  0, 0, 186, 74
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Set EPG Date and Time"
+FONT 8, "MS Sans Serif"
+BEGIN
+    LTEXT           "The EPG grid will use this date and time as ""now"" (local time):",
+                    IDC_STATIC,7,7,172,18
+    CONTROL         "",IDC_EPG_TIME_DATE,"SysDateTimePick32",DTS_SHORTDATEFORMAT |
+                    WS_TABSTOP,7,28,90,14
+    CONTROL         "",IDC_EPG_TIME_TIME,"SysDateTimePick32",DTS_TIMEFORMAT |
+                    DTS_UPDOWN | WS_TABSTOP,103,28,76,14
+    DEFPUSHBUTTON   "OK",IDOK,74,53,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,129,53,50,14
+END
+
 IDD_EPG_DATE DIALOG DISCARDABLE  0, 0, 133, 114
 STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Go to EPG Starting Date"

@@ -295,4 +295,40 @@ foreach(DLL libfaad2.dll PEGRPCS.DLL)
     endif()
 endforeach()
 
+# ============================================================
+# DekTec DTU-236 source plugins (QAM + ASI), built only when the
+# DekTec WinSDK is installed. Output goes to <build>/<config>/Sources.
+# ============================================================
+set(DEKTEC_WINSDK_DIR "C:/Program Files (x86)/DekTec/SDKs/WinSDK"
+    CACHE PATH "DekTec WinSDK folder (contains DTAPI/Include and DTAPI/Lib)")
+set(DEKTEC_DTAPI_LIB "${DEKTEC_WINSDK_DIR}/DTAPI/Lib/VC18/DTAPIMT.lib")
+set(DEKTEC_DTAPI_LIB_DEBUG "${DEKTEC_WINSDK_DIR}/DTAPI/Lib/VC18/DTAPIMTd.lib")
+
+if(EXISTS "${DEKTEC_WINSDK_DIR}/DTAPI/Include/DTAPI.h" AND EXISTS "${DEKTEC_DTAPI_LIB}")
+    message(STATUS "DekTec WinSDK found: building DTU-236 source plugins")
+    foreach(VARIANT QAM ASI)
+        set(PLUGIN TSReader_DektecDTU236_${VARIANT})
+        add_library(${PLUGIN} SHARED
+            TSReader_Dektec/TSReader_DektecDTU236.cpp
+            TSReader_Dektec/TSReader_DektecDTU236.def
+        )
+        target_include_directories(${PLUGIN} PRIVATE
+            "${DEKTEC_WINSDK_DIR}/DTAPI/Include"
+        )
+        if(VARIANT STREQUAL "ASI")
+            target_compile_definitions(${PLUGIN} PRIVATE DTU236_ASI)
+        endif()
+        target_link_libraries(${PLUGIN} PRIVATE
+            TSReader_SourceHelper
+            $<IF:$<CONFIG:Debug>,${DEKTEC_DTAPI_LIB_DEBUG},${DEKTEC_DTAPI_LIB}>
+            kernel32 user32 advapi32 setupapi ws2_32 iphlpapi
+        )
+        set_target_properties(${PLUGIN} PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>/Sources"
+        )
+    endforeach()
+else()
+    message(STATUS "DekTec WinSDK not found at ${DEKTEC_WINSDK_DIR}: skipping DTU-236 plugins")
+endif()
+
 install(TARGETS TSReader RUNTIME DESTINATION bin)

@@ -998,15 +998,22 @@
 #define ID_EXPORT_GPSSIGNALEXPORT       50248
 #define ID_FORWARD_SETTINGS             50249
 #define ID_FORWARD_DLL_BASE             50250
+#define ID_EPG_TIME_STREAM              50270
+#define ID_EPG_TIME_PC                  50271
+#define ID_EPG_TIME_USER                50272
+#define ID_EPG_TIME_GOTO_NOW            50273
+#define IDD_EPG_SET_TIME                1186
+#define IDC_EPG_TIME_DATE               1379
+#define IDC_EPG_TIME_TIME               1380
 #define ID_PLUGINS                      65530
 
 // Next default values for new objects
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        1186
-#define _APS_NEXT_COMMAND_VALUE         50270
-#define _APS_NEXT_CONTROL_VALUE         1379
+#define _APS_NEXT_RESOURCE_VALUE        1187
+#define _APS_NEXT_COMMAND_VALUE         50274
+#define _APS_NEXT_CONTROL_VALUE         1381
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif
