@@ -311,7 +311,8 @@ void _ISDrawTextOnRGB2(void * pImage, int nWidth, int nHeight,
     SetBkMode(hMemDC, TRANSPARENT);
     SetTextColor(hMemDC, (COLORREF)dwColor);
 
-    rc.left = nX; rc.top = nHeight - nY - 20; /* flip Y for bottom-up */
+    /* GDI coordinates in a DIB section are top-down whatever the row order in memory */
+    rc.left = nX; rc.top = nY;
     rc.right = nWidth - 2; rc.bottom = nHeight;
     DrawTextA(hMemDC, szText, -1, &rc, DT_LEFT | DT_TOP | DT_NOPREFIX);
 

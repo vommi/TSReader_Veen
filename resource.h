@@ -1002,6 +1002,19 @@
 #define ID_EPG_TIME_PC                  50271
 #define ID_EPG_TIME_USER                50272
 #define ID_EPG_TIME_GOTO_NOW            50273
+#define ID_PLAYBACK_FFPLAY              50274
+#define ID_SETTINGS_FFPLAY              50275
+#define IDD_FFPLAY_SETTINGS             1187
+#define IDC_FFPLAY_LOCATION             1381
+#define IDC_FFPLAY_BROWSE               1382
+#define IDC_FFPLAY_OPTIONS              1383
+#define ID_SETTINGS_DEFAULTPLAYER       50276
+#define IDD_DEFAULT_PLAYER              1188
+#define IDC_DEFAULT_PLAYER_LIST         1384
+#define IDC_SOURCE_DEFAULT              1385
+#define ID_FILE_CLEARDEFAULTSOURCE      50277
+#define ID_FILE_RECENTSOURCE_BASE       50280
+#define ID_FILE_RECENTSOURCE_NONE       50288
 #define IDD_EPG_SET_TIME                1186
 #define IDC_EPG_TIME_DATE               1379
 #define IDC_EPG_TIME_TIME               1380
@@ -1011,9 +1024,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        1187
-#define _APS_NEXT_COMMAND_VALUE         50274
-#define _APS_NEXT_CONTROL_VALUE         1381
+#define _APS_NEXT_RESOURCE_VALUE        1189
+#define _APS_NEXT_COMMAND_VALUE         50289
+#define _APS_NEXT_CONTROL_VALUE         1386
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

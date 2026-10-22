@@ -205,6 +205,7 @@ set(TSREADER_SOURCES
     EITServer.c
     email.c
     EPGGrid.c
+    FFplayEmbed.c
     Forwarder.c
     GPSSignal.c
     mosaic.c

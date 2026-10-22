@@ -1988,6 +1988,17 @@ typedef struct tag_Variables
 	ULONGLONG nEPGStreamTimeTick;	// GetTickCount64() when nEPGStreamTime was received
 	__int64 nEPGUserTime;			// user-set EPG time (UTC FILETIME)
 
+	// Embedded ffplay player (uses the VLC HTTP stream)
+	BOOL fFFplayEmbedded;			// current STREAM_TO_VLC session plays in the embedded ffplay window
+	char szFFplayLocation[MAX_PATH];	// ffplay.exe; empty = <TSReader folder>\ffplay\ffplay.exe
+	char szFFplayOptions[512];		// extra ffplay command-line options
+	int nDefaultPlayer;				// double-click player: 0 = embedded ffplay, 1-16 = VLC configuration
+
+	// Source selection
+	char szDefaultSourceName[MAX_PATH];	// source used at startup (unless -s or Ctrl); empty = last used
+	char szRecentSources[8][MAX_PATH];	// most recently used sources, newest first
+	BOOL fSourceFromCommandLine;	// -s named the source for this run
+
 	BYTE bSafety[1 * 1024 * 1024];
 } VARIABLES, *PVARIABLES;
 

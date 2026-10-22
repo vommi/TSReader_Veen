@@ -231,7 +231,7 @@ void StartIncomingTSDataThread()
 	v->hStreamProcessingThread = CreateThread(NULL, 0, ParseIncomingTSDataThread, (LPVOID)0, CREATE_SUSPENDED, &dwThreadID);
 	SourceHelper_SetWorkerThreadPriorities(TRUE);
 	ResumeThread(v->hStreamProcessingThread);
-}
+			}
 
 void SaveSettings_New(HKEY hkReg)
 {
@@ -2871,6 +2871,20 @@ Record_BuildESListDefault:
 				SendDlgItemMessage(hDlg, IDC_RECORD_VIDEO_ES, LB_SETCURSEL, 0, 0);
 				SendDlgItemMessage(hDlg, IDC_RECORD_AUDIO_ES, LB_SETSEL, TRUE, 0);
 			}
+			if (v->fRecordDialogStreamOnly == TRUE && v->fFFplayEmbedded == TRUE)
+			{
+				// Embedded ffplay: send every audio track and every DVB subtitle track; the
+				// video window's Audio and Subtitles menus choose between them
+				for (i = 0; i < v->nAudioStreams; i++)
+					SendDlgItemMessage(hDlg, IDC_RECORD_AUDIO_ES, LB_SETSEL, TRUE, i);
+				for (i = 0; i < v->nOtherStreams; i++)
+				{
+					int nES = SendDlgItemMessage(hDlg, IDC_RECORD_OTHER_ES, LB_GETITEMDATA, i, 0);
+					SendDlgItemMessage(hDlg, IDC_RECORD_OTHER_ES, LB_SETSEL, IsSubtitleStream(v->nSelectedProgram, nES), i);
+				}
+				PostMessage(hDlg, WM_COMMAND, IDOK, 0);
+				break;
+			}
 			v->fAutoRecordSubtitles = FALSE;
 			if (v->nAutoRecord != AUTO_RECORD_NONE)
 			{
@@ -3967,6 +3981,13 @@ BOOL CALLBACK VLCConnectionDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM l
 	return FALSE;
 }
 
+BOOL FFplayEmbedStart(HWND hWndOwner, UINT uStopCmd, const char * szURL, const char * szTitle);
+void FFplayEmbedStop();
+void FFplayGetExecutable(char * szExe, int nSize);
+BOOL CALLBACK FFplaySettingsDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
+BOOL CALLBACK DefaultPlayerDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
+void PlayWithDefaultPlayer();
+
 DWORD WINAPI LaunchVLCThread(LPVOID lpv)
 {
 	if (WinExec((char *)lpv, SW_SHOW) <= 31)
@@ -4087,7 +4108,14 @@ void StreamDecoder(HWND hWnd)
 		case STREAM_TO_VLC:
 			{
 				int i;
-				if (v->fVLCControl == TRUE)
+				if (v->fFFplayEmbedded)
+				{
+					FFplayEmbedStop();
+					CheckMenuItem(GetMenu(hWnd), ID_PLAYBACK_FFPLAY, MF_UNCHECKED | MF_BYCOMMAND);
+					// fFFplayEmbedded is kept: a channel change restarts the stream (timer 7) without
+					// going through the Play menu commands, which are what set or clear it
+				}
+				else if (v->fVLCControl == TRUE)
 				{
 					HWND hWndVLC;
 					char szClass[] = {"wxWindowClassNR"};
@@ -4203,8 +4231,11 @@ void StreamDecoder(HWND hWnd)
 				case STREAM_TO_VLC:
 					{
 						int i;
-						
-						CheckMenuItem(GetMenu(hWnd), ID_PLAYBACK_VLC_1 + v->nVLCPlaybackConfig, MF_CHECKED | MF_BYCOMMAND);
+
+						if (v->fFFplayEmbedded)
+							CheckMenuItem(GetMenu(hWnd), ID_PLAYBACK_FFPLAY, MF_CHECKED | MF_BYCOMMAND);
+						else
+							CheckMenuItem(GetMenu(hWnd), ID_PLAYBACK_VLC_1 + v->nVLCPlaybackConfig, MF_CHECKED | MF_BYCOMMAND);
 						for (i = 0; i < MAX_VLC_CONFIGURATIONS; i++)
 						{
 							if (i != v->nVLCPlaybackConfig)
@@ -4237,6 +4268,21 @@ void StreamDecoder(HWND hWnd)
 				switch(v->nStreamTo)
 				{
 				case STREAM_TO_VLC:
+					if (v->fFFplayEmbedded)
+					{
+						char szURL[128];
+						char szTitle[256];
+						int nProgramNumber = v->pat.pmt[v->nSelectedProgram].nProgramNumber;
+
+						wsprintf(szURL, "http://127.0.0.1:%d", v->nVLCPort);
+						if (v->pChannelData[nProgramNumber] != NULL && lstrlen(v->pChannelData[nProgramNumber]->szShortName))
+							wsprintf(szTitle, "%s (program %d)", v->pChannelData[nProgramNumber]->szShortName, nProgramNumber);
+						else
+							wsprintf(szTitle, "program %d", nProgramNumber);
+						if (FFplayEmbedStart(hWnd, ID_PLAYBACK_FFPLAY, szURL, szTitle) == FALSE)
+							PostMessage(hWnd, WM_COMMAND, ID_PLAYBACK_FFPLAY, 0);	// stop the stream again
+					}
+					else
 					{
 						if (v->fVLCControl)
 						{
@@ -13111,6 +13157,102 @@ int PopulateSourceList(HWND hDlg, HWND hWndLV)
 	return nModuleIndex;
 }
 
+#define MAX_RECENT_SOURCES 8
+
+BOOL LoadSource(HWND hWnd);
+void EnableDisableSourceMenuItems(HWND hWnd);
+
+// Menu name of a source module: "FileLoop.dll" for "...\Sources\TSReader_FileLoop.dll"
+void GetSourceShortName(const char * szPath, char * szName, int nSize)
+{
+	const char * pName = strrchr(szPath, '\\');
+
+	pName = pName ? pName + 1 : szPath;
+	if (strnicmp(pName, "TSReader_", 9) == 0)
+		pName += 9;
+	lstrcpyn(szName, pName, nSize);
+}
+
+// Moves szSource to the top of the recent sources list
+void AddRecentSource(const char * szSource)
+{
+	char szCopy[MAX_PATH];
+	int i, j;
+
+	if (!lstrlen(szSource))
+		return;
+	lstrcpyn(szCopy, szSource, sizeof(szCopy));
+	for (i = 0; i < MAX_RECENT_SOURCES - 1; i++)
+	{
+		if (lstrcmpi(v->szRecentSources[i], szCopy) == 0)
+			break;
+	}
+	for (j = i; j > 0; j--)
+		lstrcpy(v->szRecentSources[j], v->szRecentSources[j - 1]);
+	lstrcpy(v->szRecentSources[0], szCopy);
+}
+
+// Refills File/Recent Sources when it is about to open
+void UpdateRecentSourcesMenu(HMENU hMenu)
+{
+	UINT uFirstID;
+	int i, nItems = 0;
+
+	if (GetMenuItemCount(hMenu) < 1)
+		return;
+	uFirstID = GetMenuItemID(hMenu, 0);
+	if (uFirstID < ID_FILE_RECENTSOURCE_BASE || uFirstID > ID_FILE_RECENTSOURCE_NONE)
+		return;		// some other popup
+	while (GetMenuItemCount(hMenu) > 0)
+		DeleteMenu(hMenu, 0, MF_BYPOSITION);
+	for (i = 0; i < MAX_RECENT_SOURCES; i++)
+	{
+		char szName[64];
+		char szText[128];
+		UINT uFlags = MF_STRING;
+
+		if (!lstrlen(v->szRecentSources[i]))
+			continue;
+		GetSourceShortName(v->szRecentSources[i], szName, sizeof(szName));
+		wsprintf(szText, "&%d  %s%s", i + 1, szName,
+				 lstrcmpi(v->szRecentSources[i], v->szDefaultSourceName) == 0 ? "  (default)" : "");
+		if (lstrcmpi(v->szRecentSources[i], v->szSourceName) == 0)
+			uFlags |= MF_CHECKED;
+		AppendMenu(hMenu, uFlags, ID_FILE_RECENTSOURCE_BASE + i, szText);
+		nItems++;
+	}
+	if (nItems == 0)
+		AppendMenu(hMenu, MF_STRING | MF_GRAYED, ID_FILE_RECENTSOURCE_NONE, "(none)");
+}
+
+// Switches the running TSReader to another source module (as File/Select Source does)
+void SwitchToSource(HWND hWnd, const char * szNewSource)
+{
+	char szCurrentSource[MAX_PATH];
+
+	if (GetFileAttributes(szNewSource) == INVALID_FILE_ATTRIBUTES)
+	{
+		char szTemp[MAX_PATH + 64];
+		wsprintf(szTemp, "Source module not found:\n%s", szNewSource);
+		MessageBox(hWnd, szTemp, gszAppName, MB_ICONSTOP);
+		return;
+	}
+	if (lstrcmpi(szNewSource, v->szSourceName) == 0)
+		return;
+	lstrcpy(szCurrentSource, v->szSourceName);
+	lstrcpyn(v->szSourceName, szNewSource, sizeof(v->szSourceName));
+#ifndef LITE
+	RestartTSReader_Stop(hWnd);
+	FreeLibrary(v->hSource);
+	SourceHelper_ResetFirstTimeFlag();
+	LoadSource(hWnd);
+	EnableDisableSourceMenuItems(hWnd);
+	RestartTSReader_Start(hWnd);
+#else LITE
+	MessageBox(hWnd, "You will now need to close and restart TSReader for the change to take effect", gszAppName, MB_ICONINFORMATION);
+#endif LITE
+}
+
 BOOL CALLBACK SourceDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch(uMsg)
@@ -13140,8 +13282,22 @@ BOOL CALLBACK SourceDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 
 			ListView_SetExtendedListViewStyle(hWndSourceList, LVS_EX_FULLROWSELECT);
 
-			PopulateSourceList(hDlg, hWndSourceList);
-			v->nSelectedSource = -1;
+			{
+				int nSources = PopulateSourceList(hDlg, hWndSourceList);
+				int i;
+
+				v->nSelectedSource = -1;
+				// Start on the current source so OK / Enter keeps it
+				for (i = 0; i < nSources; i++)
+				{
+					if (lstrcmpi(v->sourcemodules[i].szFilename, v->szSourceName) == 0)
+					{
+						ListView_SetItemState(hWndSourceList, i, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+						ListView_EnsureVisible(hWndSourceList, i, FALSE);
+						break;
+					}
+				}
+			}
 
 			SendDlgItemMessage(hDlg, IDC_COMMAND_LINE_PARAMETERS, WM_SETFONT, (WPARAM)v->hCourierNew, MAKELONG(TRUE, 0));
 			SetForegroundWindow(hDlg);
@@ -13162,7 +13318,13 @@ BOOL CALLBACK SourceDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 			EndDialog(hDlg, FALSE);
 			break;
 		case IDOK:
+			if (v->nSelectedSource < 0)
+				break;		// nothing selected (OK can be posted before the list is ready)
 			lstrcpy(v->szSourceName, v->sourcemodules[v->nSelectedSource].szFilename);
+			if (IsDlgButtonChecked(hDlg, IDC_SOURCE_DEFAULT))
+				lstrcpy(v->szDefaultSourceName, v->szSourceName);
+			else if (lstrcmpi(v->szDefaultSourceName, v->szSourceName) == 0)
+				v->szDefaultSourceName[0] = '\0';
 			if (v->sourcemodules[v->nSelectedSource].dwCapabilities & CAPABILITIES_MULTICARD)
 				v->ss.nSourceIndex = GetDlgItemInt(hDlg, IDC_SOURCE_DEVICE_NUMBER, NULL, FALSE);
 			else
@@ -13186,6 +13348,9 @@ BOOL CALLBACK SourceDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				if (pnmv->uNewState & LVIS_SELECTED)
 				{
 					v->nSelectedSource = pnmv->iItem;
+					CheckDlgButton(hDlg, IDC_SOURCE_DEFAULT,
+								   lstrlen(v->szDefaultSourceName) &&
+								   lstrcmpi(v->sourcemodules[v->nSelectedSource].szFilename, v->szDefaultSourceName) == 0);
 					EnableWindow(GetDlgItem(hDlg, IDOK), TRUE);
 					SetDlgItemText(hDlg, IDC_COMMAND_LINE_PARAMETERS, v->sourcemodules[v->nSelectedSource].szCommandLineParameters);
 					EnableWindow(GetDlgItem(hDlg, IDC_SOURCE_DEVICE_NUMBER), v->sourcemodules[v->nSelectedSource].dwCapabilities & CAPABILITIES_MULTICARD);					
@@ -14986,6 +15151,7 @@ BOOL LoadSource(HWND hWnd)
 				v->szSourceName[0] = 0;
 				continue;
 			}
+			AddRecentSource(v->szSourceName);
 			Init = (td_Init)GetProcAddress(v->hSource, "TSReader_Init");
 			DeInit = (td_DeInit)GetProcAddress(v->hSource, "TSReader_DeInit");
 			Start = (td_Start)GetProcAddress(v->hSource, "TSReader_Start");
@@ -18402,7 +18568,7 @@ BOOL CALLBACK SIParserDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 						if (v->nAutoRecord != AUTO_RECORD_NONE && v->nAutoRecord != AUTO_RECORD_VLC)
 						{
 							if (v->nAutoRecord == AUTO_RECORD_VLC_TIME_LIMITED)
-								SendMessage(v->hWndMainWindow, WM_COMMAND, ID_PLAYBACK_VLC_1 + (v->nAutoVLCConfiguration - 1), 0);
+								SendMessage(v->hWndMainWindow, WM_COMMAND, v->nAutoVLCConfiguration == 0 ? ID_PLAYBACK_FFPLAY : ID_PLAYBACK_VLC_1 + (v->nAutoVLCConfiguration - 1), 0);
 							else
 								SendMessage(v->hWndMainWindow, WM_COMMAND, IDC_SI_PARSER_RECORD, 0);
 							PostMessage(v->hWndMainWindow, WM_CLOSE, 0, 0);
@@ -18490,7 +18656,7 @@ BOOL CALLBACK SIParserDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 				break;
 			case AUTO_RECORD_VLC:
 			case AUTO_RECORD_VLC_TIME_LIMITED:
-				SendMessage(v->hWndMainWindow, WM_COMMAND, ID_PLAYBACK_VLC_1 + (v->nAutoVLCConfiguration - 1), 0);
+				SendMessage(v->hWndMainWindow, WM_COMMAND, v->nAutoVLCConfiguration == 0 ? ID_PLAYBACK_FFPLAY : ID_PLAYBACK_VLC_1 + (v->nAutoVLCConfiguration - 1), 0);
 				break;
 			}
 			break;
@@ -18735,14 +18901,17 @@ BOOL CALLBACK SIParserDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 		{
 			int x = LOWORD(lParam);
 			int y = HIWORD(lParam);
-			if (v->fRecording == FALSE && v->nSelectedProgram != -1)
+			if (v->nSelectedProgram != -1)
 			{
 #ifdef PRO
 				if (v->fDefaultPlaybackViaStradis)
-					PostMessage(v->hWndMainWindow, WM_COMMAND, IDC_SI_PARSER_TO_STRADIS, 0);
+				{
+					if (v->fRecording == FALSE)
+						PostMessage(v->hWndMainWindow, WM_COMMAND, IDC_SI_PARSER_TO_STRADIS, 0);
+				}
 				else
 #endif PRO
-					PostMessage(v->hWndMainWindow, WM_COMMAND, ID_PLAYBACK_VLC_1, 0);
+					PlayWithDefaultPlayer();
 			}
 		}
 		break;
@@ -19600,6 +19769,27 @@ void ProcessMain_WM_COMMAND(HWND hWnd, WPARAM wParam, LPARAM lParam)
 	case ID_FILE_RESTART_SOURCE:
 		RestartTSReader(hWnd);
 		break;
+	case ID_FILE_RECENTSOURCE_BASE + 0:
+	case ID_FILE_RECENTSOURCE_BASE + 1:
+	case ID_FILE_RECENTSOURCE_BASE + 2:
+	case ID_FILE_RECENTSOURCE_BASE + 3:
+	case ID_FILE_RECENTSOURCE_BASE + 4:
+	case ID_FILE_RECENTSOURCE_BASE + 5:
+	case ID_FILE_RECENTSOURCE_BASE + 6:
+	case ID_FILE_RECENTSOURCE_BASE + 7:
+		{
+			char szNewSource[MAX_PATH];
+
+			lstrcpy(szNewSource, v->szRecentSources[LOWORD(wParam) - ID_FILE_RECENTSOURCE_BASE]);
+			if (lstrlen(szNewSource))
+				SwitchToSource(hWnd, szNewSource);
+		}
+		break;
+	case ID_FILE_CLEARDEFAULTSOURCE:
+		v->szDefaultSourceName[0] = '\0';
+		SaveSettings();
+		MessageBox(hWnd, "No default source: TSReader will start with the last source used.", gszAppName, MB_ICONINFORMATION);
+		break;
 	case ID_FILE_EXIT:
 		PostMessage(hWnd, WM_CLOSE, 0, 0);
 		break;
@@ -19821,8 +20011,36 @@ void ProcessMain_WM_COMMAND(HWND hWnd, WPARAM wParam, LPARAM lParam)
 		{
 			DialogBox(v->hInstance, MAKEINTRESOURCE(IDD_VLC_WARNING), hWnd, VLCWarningDlgProc);
 		}
+		if (v->fRecording == FALSE)
+			v->fFFplayEmbedded = FALSE;
 		v->nStreamTo = STREAM_TO_VLC;
 		StreamDecoder(hWnd);
+		break;
+	case ID_PLAYBACK_FFPLAY:
+		if (v->fRecording == FALSE)
+		{
+			char szExe[MAX_PATH];
+
+			FFplayGetExecutable(szExe, sizeof(szExe));
+			while (GetFileAttributes(szExe) == INVALID_FILE_ATTRIBUTES)
+			{
+				if (MessageBox(hWnd, "ffplay.exe was not found. Please set its location on the following dialog", gszAppName, MB_ICONWARNING | MB_OKCANCEL) == IDCANCEL)
+					return;
+				DialogBox(v->hInstance, MAKEINTRESOURCE(IDD_FFPLAY_SETTINGS), hWnd, FFplaySettingsDlgProc);
+				FFplayGetExecutable(szExe, sizeof(szExe));
+			}
+			v->fFFplayEmbedded = TRUE;
+		}
+		else if (v->nStreamTo != STREAM_TO_VLC || v->fFFplayEmbedded == FALSE)
+			break;		// something else is streaming; its own menu item stops it
+		v->nStreamTo = STREAM_TO_VLC;
+		StreamDecoder(hWnd);
+		break;
+	case ID_SETTINGS_FFPLAY:
+		DialogBox(v->hInstance, MAKEINTRESOURCE(IDD_FFPLAY_SETTINGS), hWnd, FFplaySettingsDlgProc);
+		break;
+	case ID_SETTINGS_DEFAULTPLAYER:
+		DialogBox(v->hInstance, MAKEINTRESOURCE(IDD_DEFAULT_PLAYER), hWnd, DefaultPlayerDlgProc);
 		break;
 	case IDC_SI_PARSER_RECORD:
 		v->nStreamTo = 0;
@@ -20398,6 +20616,9 @@ LRESULT FAR PASCAL MainWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPara
 
 	switch (uMsg)
 	{
+	case WM_INITMENUPOPUP:
+		UpdateRecentSourcesMenu((HMENU)wParam);
+		return(DefWindowProc(hWnd, uMsg, wParam, lParam));
 	case WM_CREATE:
 		{
 			fFirstTime = TRUE;
@@ -21774,7 +21995,8 @@ char * ParseTSReaderCommandLine(char * szCmdLinePtr, BOOL * fResult)
 				SourceHelper_GetTSReaderEXEDirectory(v->hInstance, v->szSourceName, sizeof(v->szSourceName));
 				lstrcat(v->szSourceName, "\\Sources\\");
 				lstrcat(v->szSourceName, szNewSourceName);
-			}
+				v->fSourceFromCommandLine = TRUE;
+}
 			break;
 		case 'S':	// Source device number
 			{
@@ -21834,11 +22056,11 @@ char * ParseTSReaderCommandLine(char * szCmdLinePtr, BOOL * fResult)
 				char szInvalidStreamParameters[] = {
 					"Invalid -v parameters\n\n"
 					"service = service number to stream\n"
-					"config = TSReader's VLC configuration number (1-16)\n"};
+					"config = TSReader's VLC configuration number (1-16), 0 = embedded ffplay\n"};
 				char szInvalidStreamParametersTimeLimited[] = {
 					"Invalid -V parameters\n\n"
 					"service = service number to stream\n"
-					"config = TSReader's VLC configuration number (1-16)\n"
+					"config = TSReader's VLC configuration number (1-16), 0 = embedded ffplay\n"
 					"seconds = number of seconds to stream\n"};
 
 
@@ -21875,7 +22097,7 @@ char * ParseTSReaderCommandLine(char * szCmdLinePtr, BOOL * fResult)
 					*fResult = FALSE;
 					return NULL;
 				}
-				if (v->nAutoVLCConfiguration < 1 || v->nAutoVLCConfiguration > 16)
+				if (v->nAutoVLCConfiguration < 0 || v->nAutoVLCConfiguration > 16)
 				{
 					MessageBox(NULL, szErrorMessage, gszAppName, MB_OK | MB_ICONSTOP);
 					*fResult = FALSE;
@@ -22267,6 +22489,10 @@ BOOL CALLBACK BombWarningDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lPa
 void DoNormalTSReaderWindow(char * szCmdLinePtr)
 {
 	BOOL fBombed = FALSE;
+
+	// The default source (set in the source dialog) is used at startup unless -s named one
+	if (!v->fSourceFromCommandLine && lstrlen(v->szDefaultSourceName))
+		lstrcpy(v->szSourceName, v->szDefaultSourceName);
 
 	if (LoadSource(NULL) == TRUE)
 	{

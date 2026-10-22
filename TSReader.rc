@@ -320,6 +320,8 @@ BEGIN
                     IDC_SOURCE_CAPTION,0,246,367,9
     RTEXT           "Device Number",IDC_STATIC,9,195,56,8
     EDITTEXT        IDC_SOURCE_DEVICE_NUMBER,73,193,28,12,ES_AUTOHSCROLL
+    CONTROL         "Use this source by default at startup",IDC_SOURCE_DEFAULT,
+                    "Button",BS_AUTOCHECKBOX | WS_TABSTOP,110,195,140,10
 END
 
 IDD_MANUAL_CHANNELS DIALOG DISCARDABLE  0, 0, 228, 109
@@ -394,6 +396,35 @@ BEGIN
     LTEXT           "Server Port",IDC_STATIC,7,13,43,8
     LTEXT           "If you change the port, you'll need to stop and restart this application for the change to take effect.",
                     IDC_STATIC,8,31,112,25
+END
+
+IDD_DEFAULT_PLAYER DIALOG DISCARDABLE  0, 0, 250, 74
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Default Player"
+FONT 8, "MS Sans Serif"
+BEGIN
+    LTEXT           "Player used when a thumbnail in the Video Decode pane or the Mosaic window is double-clicked:",
+                    IDC_STATIC,7,7,236,18
+    COMBOBOX        IDC_DEFAULT_PLAYER_LIST,7,28,236,160,CBS_DROPDOWNLIST |
+                    WS_VSCROLL | WS_TABSTOP
+    DEFPUSHBUTTON   "OK",IDOK,138,53,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,193,53,50,14
+END
+
+IDD_FFPLAY_SETTINGS DIALOG DISCARDABLE  0, 0, 362, 92
+STYLE DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Embedded FFplay Settings"
+FONT 8, "MS Sans Serif"
+BEGIN
+    RTEXT           "ffplay executable",IDC_STATIC,7,9,70,8
+    EDITTEXT        IDC_FFPLAY_LOCATION,82,7,256,13,ES_AUTOHSCROLL
+    PUSHBUTTON      "...",IDC_FFPLAY_BROWSE,341,7,14,13
+    RTEXT           "Extra options",IDC_STATIC,7,27,70,8
+    EDITTEXT        IDC_FFPLAY_OPTIONS,82,25,273,13,ES_AUTOHSCROLL
+    LTEXT           "Audio and subtitle tracks are chosen from the Audio and Subtitles menus of the video window. In the video: F = full screen, Space = pause. The stream comes from the VLC data port (VLC Settings).",
+                    IDC_STATIC,82,42,273,26
+    DEFPUSHBUTTON   "OK",IDOK,250,71,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,305,71,50,14
 END
 
 IDD_VLC_SETTINGS DIALOG DISCARDABLE  0, 0, 362, 146
@@ -3176,7 +3207,12 @@ BEGIN
         MENUITEM "DiSEqC Positioner...",        ID_FILE_DISEQCPOSITIONER
         MENUITEM SEPARATOR
         MENUITEM "Restart Source...\tAlt+R",    ID_FILE_RESTART_SOURCE
-        MENUITEM "Select Source...",            ID_FILE_SELECTSOURCE
+        MENUITEM "Select Source...\tF4",        ID_FILE_SELECTSOURCE
+        POPUP "Recent Sources"
+        BEGIN
+            MENUITEM "(none)",                      ID_FILE_RECENTSOURCE_NONE, GRAYED
+        END
+        MENUITEM "Clear Default Source",        ID_FILE_CLEARDEFAULTSOURCE
         MENUITEM "Stop Source",                 ID_FILE_STOPSOURCE
         MENUITEM SEPARATOR
         MENUITEM "Define manual channels...\tAlt+M", 
@@ -3348,6 +3384,14 @@ BEGIN
             MENUITEM "Play",                        ID_PLAYBACK_XNSSERVER
             MENUITEM SEPARATOR
             MENUITEM "Settings...",                 ID_SETTINGS_XNSSERVER
+        END
+        MENUITEM "Default Player...",           ID_SETTINGS_DEFAULTPLAYER
+        MENUITEM SEPARATOR
+        POPUP "FFplay (embedded)"
+BEGIN
+            MENUITEM "Play",                        ID_PLAYBACK_FFPLAY
+            MENUITEM SEPARATOR
+            MENUITEM "Settings...",                 ID_SETTINGS_FFPLAY
         END
         POPUP "VLC"
         BEGIN
@@ -3758,6 +3802,14 @@ BEGIN
             MENUITEM "Settings...",                 ID_PLAYBACK_STRADISMPEG2DECODER_SETTINGS
 
         END
+        MENUITEM "Default Player...",           ID_SETTINGS_DEFAULTPLAYER
+        MENUITEM SEPARATOR
+        POPUP "FFplay (embedded)"
+BEGIN
+            MENUITEM "Play",                        ID_PLAYBACK_FFPLAY
+            MENUITEM SEPARATOR
+            MENUITEM "Settings...",                 ID_SETTINGS_FFPLAY
+        END
         POPUP "VLC"
         BEGIN
             MENUITEM "VLC1",                        ID_PLAYBACK_VLC_1
@@ -4145,6 +4197,7 @@ BEGIN
     "V",            ID_SETTINGS_VLC,        VIRTKEY, ALT, NOINVERT
     VK_ESCAPE,      ID_FILE_EXIT,           VIRTKEY, NOINVERT
     VK_F1,          IDC_SUPPORT,            VIRTKEY, NOINVERT
+    VK_F4,          ID_FILE_SELECTSOURCE,   VIRTKEY, NOINVERT
     VK_F5,          ID_SETTINGS_THUMBNAILTHREAD_REFRESHNOW, VIRTKEY, 
                                                     NOINVERT
     VK_F6,          ID_HELP_RESETALL,       VIRTKEY, NOINVERT
@@ -4182,6 +4235,7 @@ BEGIN
     "V",            ID_SETTINGS_VLC,        VIRTKEY, ALT, NOINVERT
     VK_ESCAPE,      ID_FILE_EXIT,           VIRTKEY, NOINVERT
     VK_F1,          IDC_SUPPORT,            VIRTKEY, NOINVERT
+    VK_F4,          ID_FILE_SELECTSOURCE,   VIRTKEY, NOINVERT
     VK_F5,          ID_SETTINGS_THUMBNAILTHREAD_REFRESHNOW, VIRTKEY, 
                                                     NOINVERT
     VK_F6,          ID_HELP_RESETALL,       VIRTKEY, NOINVERT

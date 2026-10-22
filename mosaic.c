@@ -15,6 +15,7 @@ extern char gszAppName[];
 extern char gszVideoMosaicClass[];
 
 void ValidateWindowXY(int * nX, int * nY);
+void PlayWithDefaultPlayer();
 
 int nOneToOneWidth;
 int nOneToOneHeight;
@@ -329,8 +330,8 @@ LRESULT FAR PASCAL VideoMosaicWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARA
 					}
 					TreeView_SelectItem(hWndTV, v->pat.pmt[nPMTIndex].hPMTTreeItem);
 					TreeView_SelectSetFirstVisible(hWndTV, v->pat.pmt[nPMTIndex].hPMTTreeItem);
-					if (v->fRecording == FALSE && v->nSelectedProgram != -1)
-						PostMessage(v->hWndMainWindow, WM_COMMAND, ID_PLAYBACK_VLC_1, 0);
+					if (v->nSelectedProgram != -1)
+						PlayWithDefaultPlayer();
 					break;
 				}
 			}

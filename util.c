@@ -1178,6 +1178,26 @@ void GenerateSizedThumbnail(BYTE * pImage, int nDestWidth, int nDestHeight, int 
 				   pDestBuffer,
 				   nDestWidth,
 				   nDestHeight);
+	// The decoders deliver top-down frames but thumbnails are kept bottom-up (Windows DIB
+	// order, as the _IS* image functions expect) - flip so pictures aren't upside down
+	{
+		int nRowBytes = nDestWidth * 3;
+		BYTE * pRow = LocalAlloc(LPTR, nRowBytes);
+		int nRow;
+
+		if (pRow != NULL)
+		{
+			for (nRow = 0; nRow < nDestHeight / 2; nRow++)
+			{
+				BYTE * pTop = pDestBuffer + nRow * nRowBytes;
+				BYTE * pBottom = pDestBuffer + (nDestHeight - 1 - nRow) * nRowBytes;
+				memcpy(pRow, pTop, nRowBytes);
+				memcpy(pTop, pBottom, nRowBytes);
+				memcpy(pBottom, pRow, nRowBytes);
+			}
+			LocalFree(pRow);
+		}
+	}
 	/*else
 		_ISDecimateRGB(pImage,
 				   x,
