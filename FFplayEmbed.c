@@ -385,20 +385,25 @@ static LRESULT CALLBACK FFplayHostWndProc(HWND hWnd, UINT msg, WPARAM wParam, LP
 }
 
 // Returns the ffplay.exe to use: the configured one, or <TSReader folder>\ffplay\ffplay.exe
+static void FFplayGetBundledExecutable(char * szExe, int nSize)
+{
+	char * pSlash;
+
+	GetModuleFileName(NULL, szExe, nSize);
+	pSlash = strrchr(szExe, '\\');
+	if (pSlash != NULL)
+		*pSlash = '\0';
+	lstrcat(szExe, "\\ffplay\\ffplay.exe");
+}
+
+// Settings are shared by every TSReader copy on the PC (HKCU), so a configured path that
+// no longer exists - e.g. another copy's folder - falls back to the bundled ffplay
 void FFplayGetExecutable(char * szExe, int nSize)
 {
-	if (lstrlen(v->szFFplayLocation))
+	if (lstrlen(v->szFFplayLocation) && GetFileAttributes(v->szFFplayLocation) != INVALID_FILE_ATTRIBUTES)
 		lstrcpyn(szExe, v->szFFplayLocation, nSize);
 	else
-	{
-		char * pSlash;
-
-		GetModuleFileName(NULL, szExe, nSize);
-		pSlash = strrchr(szExe, '\\');
-		if (pSlash != NULL)
-			*pSlash = '\0';
-		lstrcat(szExe, "\\ffplay\\ffplay.exe");
-	}
+		FFplayGetBundledExecutable(szExe, nSize);
 }
 
 BOOL FFplayEmbedStart(HWND hWndOwner, UINT uStopCmd, const char * szURL, const char * szTitle)
@@ -614,7 +619,15 @@ BOOL CALLBACK FFplaySettingsDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM 
 			}
 			break;
 		case IDOK:
-			GetDlgItemText(hDlg, IDC_FFPLAY_LOCATION, v->szFFplayLocation, sizeof(v->szFFplayLocation));
+			{
+				char szBundled[MAX_PATH];
+
+				GetDlgItemText(hDlg, IDC_FFPLAY_LOCATION, v->szFFplayLocation, sizeof(v->szFFplayLocation));
+				// Keep "use the bundled ffplay" as an empty setting so it follows this copy's folder
+				FFplayGetBundledExecutable(szBundled, sizeof(szBundled));
+				if (lstrcmpi(v->szFFplayLocation, szBundled) == 0)
+					v->szFFplayLocation[0] = '\0';
+			}
 			GetDlgItemText(hDlg, IDC_FFPLAY_OPTIONS, v->szFFplayOptions, sizeof(v->szFFplayOptions));
 			EndDialog(hDlg, TRUE);
 			break;

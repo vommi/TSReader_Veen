@@ -36,3 +36,6 @@ TSReader_Linsys___*
 TSReader_TTBudget___* 
 TSReader_Twinhan2___*
 .srcusb  
+
+# Installer build output
+installer_output/
