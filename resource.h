@@ -1015,6 +1015,46 @@
 #define ID_FILE_CLEARDEFAULTSOURCE      50277
 #define ID_FILE_RECENTSOURCE_BASE       50280
 #define ID_FILE_RECENTSOURCE_NONE       50288
+#define ID_NIT_SAVE_CABLE_PLANS         50289
+#define IDD_AUTORECORD                  1189
+#define IDC_AR_ENABLED                  1386
+#define IDC_AR_MODE_MINUTES             1387
+#define IDC_AR_MODE_HOURS               1388
+#define IDC_AR_MODE_TIMES               1389
+#define IDC_AR_MINUTES                  1390
+#define IDC_AR_HOURS                    1391
+#define IDC_AR_TIMES                    1392
+#define IDC_AR_MON                      1393
+#define IDC_AR_TUE                      1394
+#define IDC_AR_WED                      1395
+#define IDC_AR_THU                      1396
+#define IDC_AR_FRI                      1397
+#define IDC_AR_SAT                      1398
+#define IDC_AR_SUN                      1399
+#define IDC_AR_PLAN                     1400
+#define IDC_AR_MUXES                    1401
+#define IDC_AR_ALL                      1402
+#define IDC_AR_NONE                     1403
+#define IDC_AR_STABILIZE                1404
+#define IDC_AR_LOCKTIMEOUT              1405
+#define IDC_AR_RETRIES                  1406
+#define IDC_AR_LENGTH                   1407
+#define IDC_AR_FOLDER                   1408
+#define IDC_AR_BROWSE                   1409
+#define IDC_AR_PREFIX                   1410
+#define IDC_AR_SUFFIX                   1411
+#define IDC_AR_PREVIEW                  1412
+#define IDC_AR_KEEP                     1413
+#define IDC_AR_MAXAGE                   1414
+#define IDC_AR_MINFREE                  1415
+#define IDC_AR_CSV                      1416
+#define IDC_AR_SKIPBUSY                 1417
+#define IDC_AR_RESTORE                  1418
+#define IDC_AR_STATUS                   1419
+#define IDC_AR_RUNNOW                   1420
+#define IDC_AR_STOP                     1421
+#define ID_RECORD_AUTORECORDER          50290
+#define ID_RECORD_AUTORECORDER_RUN      50291
 #define IDD_EPG_SET_TIME                1186
 #define IDC_EPG_TIME_DATE               1379
 #define IDC_EPG_TIME_TIME               1380
@@ -1024,9 +1064,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        1189
-#define _APS_NEXT_COMMAND_VALUE         50289
-#define _APS_NEXT_CONTROL_VALUE         1386
+#define _APS_NEXT_RESOURCE_VALUE        1190
+#define _APS_NEXT_COMMAND_VALUE         50292
+#define _APS_NEXT_CONTROL_VALUE         1422
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

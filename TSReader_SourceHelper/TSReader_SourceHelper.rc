@@ -264,7 +264,7 @@ BEGIN
                     192,64,37,9
     CONTROL         "List1",IDC_CABLE_LIST,"SysListView32",LVS_REPORT | 
                     LVS_SINGLESEL | LVS_NOSORTHEADER | WS_BORDER | 
-                    WS_TABSTOP,9,94,254,118
+                    WS_TABSTOP,9,97,254,115
     DEFPUSHBUTTON   "Tune",IDOK,214,7,50,14
     PUSHBUTTON      "Cancel",IDCANCEL,214,24,50,14
     RTEXT           "Frequency MHz",IDC_STATIC,45,11,51,8
@@ -272,7 +272,9 @@ BEGIN
     RTEXT           "Spectrum Inversion",IDC_STATIC,32,53,64,10
     RTEXT           "Signal Bandwidth",IDC_STATIC,27,64,69,10
     CONTROL         "",IDC_SEPERATOR,"Static",SS_BLACKFRAME,10,79,253,1
-    LTEXT           "Muxes",IDC_STATIC,10,83,28,8
+    LTEXT           "Plan",IDC_STATIC,10,83,20,8
+    COMBOBOX        IDC_CABLE_PLAN,32,81,231,160,CBS_DROPDOWNLIST |
+                    WS_VSCROLL | WS_TABSTOP
     RTEXT           "Symbol Rate",IDC_STATIC,52,25,44,8
     RTEXT           "QAM Mode",IDC_STATIC,44,39,52,8
 END

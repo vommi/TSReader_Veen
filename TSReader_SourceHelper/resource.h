@@ -37,6 +37,7 @@
 #define IDC_ATSC_CHANNEL_DESCRIPTION    1015
 #define IDC_QAM_MODE                    1017
 #define IDC_CABLE_LIST                  1018
+#define IDC_CABLE_PLAN                  1120
 #define IDC_MODULATION                  1019
 #define IDC_CODE_RATE                   1020
 #define IDC_INPUT_SETUP                 1021
@@ -195,7 +196,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        118
 #define _APS_NEXT_COMMAND_VALUE         40001
-#define _APS_NEXT_CONTROL_VALUE         1120
+#define _APS_NEXT_CONTROL_VALUE         1121
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

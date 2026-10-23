@@ -3987,6 +3987,12 @@ void FFplayGetExecutable(char * szExe, int nSize);
 BOOL CALLBACK FFplaySettingsDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 BOOL CALLBACK DefaultPlayerDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
 void PlayWithDefaultPlayer();
+BOOL CALLBACK AutoRecordDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
+void AutoRec_Init(HWND hWnd);
+BOOL AutoRec_Start(HWND hWnd, char * szWhy);
+void AutoRec_Stop(HWND hWnd);
+BOOL AutoRec_IsRunning();
+char * AutoRec_GetStartupParameters();
 
 DWORD WINAPI LaunchVLCThread(LPVOID lpv)
 {
@@ -17634,6 +17640,97 @@ void AddNetworkToINI(PNITENTRY pNITData, PNETWORKTOINILIST pNetworkToINIList)
 	}
 }
 
+// Writes one DVB-C channel plan per network (<TSReader>\\CablePlans\\<network> (NIT <id>).lst)
+// from the cable delivery descriptors in the received NIT. The DVB-C tune dialog lists them.
+// Returns the number of plans written; szSummary lists them.
+int SaveNITAsCablePlans(char * szSummary, int nSummarySize)
+{
+	static BYTE fDone[MAX_TS_ENTRIES];
+	char szFolder[MAX_PATH];
+	int nNITIndex, nPlans = 0;
+
+	szSummary[0] = '\0';
+	memset(fDone, 0, sizeof(fDone));
+	SourceHelper_GetTSReaderEXEDirectory(v->hInstance, szFolder, sizeof(szFolder));
+	lstrcat(szFolder, "\\CablePlans");
+	CreateDirectory(szFolder, NULL);
+
+	for (nNITIndex = 0; nNITIndex < MAX_TS_ENTRIES; nNITIndex++)
+	{
+		PNITENTRY pFirst = v->pNITData[nNITIndex];
+		char szName[128];
+		char szFile[MAX_PATH];
+		char szLine[256];
+		HANDLE hFile;
+		DWORD dwWritten;
+		int nOther, nMuxes = 0, i;
+		int nFrequencies[MAX_CABLE_MUXES];
+
+		if (pFirst == NULL || pFirst->nType != NIT_DVBC || fDone[nNITIndex])
+			continue;
+
+		// File name from the network name (skipping a DVB character-set prefix), without
+		// characters Windows doesn't allow
+		{
+			const BYTE * pText = (const BYTE *)pFirst->szNetworkName;
+
+			if (pText[0] == 0x10)
+				pText += 3;				// 0x10 + 2-byte ISO 8859 table number
+			else if (pText[0] == 0x1f)
+				pText += 2;				// 0x1F + encoding id
+			else if (pText[0] > 0 && pText[0] < 0x20)
+				pText += 1;				// single-byte character table selector
+			lstrcpyn(szName, (const char *)pText, 80);
+		}
+		if (!lstrlen(szName))
+			lstrcpy(szName, "Cable network");
+		for (i = 0; szName[i]; i++)
+		{
+			if (strchr("\\/:*?\"<>|", szName[i]) != NULL || (BYTE)szName[i] < 0x20)
+				szName[i] = '_';
+		}
+		wsprintf(szFile, "%s\\%s (NIT %d).lst", szFolder, szName, pFirst->nNetworkID);
+		hFile = CreateFile(szFile, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+		if (hFile == INVALID_HANDLE_VALUE)
+			continue;
+		wsprintf(szLine, "# TSReader cable channel plan from the NIT of network %d (%s)\r\n"
+						 "# frequency_kHz\tsymbolrate_kS\tQAM\tinverted\tbandwidth_MHz\tname\r\n",
+				 pFirst->nNetworkID, pFirst->szNetworkName);
+		WriteFile(hFile, szLine, lstrlen(szLine), &dwWritten, NULL);
+
+		for (nOther = nNITIndex; nOther < MAX_TS_ENTRIES; nOther++)
+		{
+			PNITENTRY pNIT = v->pNITData[nOther];
+			int nFrequency, nQAM;
+
+			if (pNIT == NULL || pNIT->nType != NIT_DVBC || pNIT->nNetworkID != pFirst->nNetworkID)
+				continue;
+			fDone[nOther] = TRUE;
+			nFrequency = pNIT->nFrequency / 10;		// BCD 100 Hz units -> kHz
+			for (i = 0; i < nMuxes; i++)
+			{
+				if (nFrequencies[i] == nFrequency)
+					break;
+			}
+			if (i < nMuxes || nMuxes == MAX_CABLE_MUXES)
+				continue;		// already listed
+			nFrequencies[nMuxes++] = nFrequency;
+			nQAM = (pNIT->dvbc.nModulation >= 1 && pNIT->dvbc.nModulation <= 5) ? (16 << (pNIT->dvbc.nModulation - 1)) : 256;
+			// The NIT carries no spectral inversion or bandwidth: assume normal, 8 MHz
+			wsprintf(szLine, "%d\t%d\t%d\t0\t8\tTS %d%s\r\n",
+					 nFrequency, pNIT->dvbc.nSymbolRate / 10, nQAM,
+					 pNIT->nTransportStreamID, pNIT->nTransportStreamID == v->pat.nTransportStreamID ? " (this mux)" : "");
+			WriteFile(hFile, szLine, lstrlen(szLine), &dwWritten, NULL);
+		}
+		CloseHandle(hFile);
+		nPlans++;
+		wsprintf(szLine, "%s (NIT %d): %d muxes\n", szName, pFirst->nNetworkID, nMuxes);
+		if (lstrlen(szSummary) + lstrlen(szLine) < nSummarySize)
+			lstrcat(szSummary, szLine);
+	}
+	return nPlans;
+}
+
 int ExportNITAsINIFiles(HWND hWnd)
 {
 	int nNITIndex;
@@ -18161,6 +18258,20 @@ BOOL CALLBACK SIParserDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam
 #endif LITE
 			break;
 #ifndef LITE
+		case ID_NIT_SAVE_CABLE_PLANS:
+			{
+				char szSummary[2048];
+				char szMessage[2200];
+
+				if (SaveNITAsCablePlans(szSummary, sizeof(szSummary)) == 0)
+					MessageBox(hDlg, "The NIT contains no cable (DVB-C) muxes, so no channel plans were written.", gszAppName, MB_ICONINFORMATION);
+				else
+				{
+					wsprintf(szMessage, "Cable channel plans written to the CablePlans folder:\n\n%s\nChoose them from the Plan list in the DVB-C tune dialog.", szSummary);
+					MessageBox(hDlg, szMessage, gszAppName, MB_ICONINFORMATION);
+				}
+			}
+			break;
 		case ID_NIT_EXPORT_EXPORT_TO_INI:
 			if (DialogBox(v->hInstance, MAKEINTRESOURCE(IDD_EXPORT_NIT_INI), hDlg, ExportNITAsINIDlgProc) == TRUE)
 			{
@@ -20042,6 +20153,19 @@ void ProcessMain_WM_COMMAND(HWND hWnd, WPARAM wParam, LPARAM lParam)
 	case ID_SETTINGS_DEFAULTPLAYER:
 		DialogBox(v->hInstance, MAKEINTRESOURCE(IDD_DEFAULT_PLAYER), hWnd, DefaultPlayerDlgProc);
 		break;
+	case ID_RECORD_AUTORECORDER:
+		DialogBox(v->hInstance, MAKEINTRESOURCE(IDD_AUTORECORD), hWnd, AutoRecordDlgProc);
+		break;
+	case ID_RECORD_AUTORECORDER_RUN:
+		if (AutoRec_IsRunning())
+			AutoRec_Stop(hWnd);
+		else
+		{
+			char szWhy[256];
+			if (!AutoRec_Start(hWnd, szWhy))
+				MessageBox(hWnd, szWhy, gszAppName, MB_ICONWARNING);
+		}
+		break;
 	case IDC_SI_PARSER_RECORD:
 		v->nStreamTo = 0;
 		RecordStream(hWnd, FALSE, -1);
@@ -20623,6 +20747,7 @@ LRESULT FAR PASCAL MainWndProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lPara
 		{
 			fFirstTime = TRUE;
 			v->hDlgSIParser = CreateDialog(v->hInstance, MAKEINTRESOURCE(IDD_SI_PARSER), hWnd, SIParserDlgProc);
+			AutoRec_Init(hWnd);
 			if (v->fSourceInitFailed)
 			{
 				DestroyWindow(hWnd);
@@ -21357,6 +21482,14 @@ char * ParseTSReaderCommandLine(char * szCmdLinePtr, BOOL * fResult)
 		if (*szCmdLinePtr != '-')
 			return szCmdLinePtr;
 
+		// -autorecord: run one Auto TS Recorder pass after start-up, then exit
+		if (strnicmp(szCmdLinePtr, "-autorecord", 11) == 0 && (szCmdLinePtr[11] == ' ' || szCmdLinePtr[11] == '\0'))
+		{
+			v->fAutoRecAtStart = TRUE;
+			szCmdLinePtr = SkipCommandLineSwitch(szCmdLinePtr);
+			continue;
+		}
+
 		switch(*(szCmdLinePtr + 1))
 		{
 		default:
@@ -21996,7 +22129,7 @@ char * ParseTSReaderCommandLine(char * szCmdLinePtr, BOOL * fResult)
 				lstrcat(v->szSourceName, "\\Sources\\");
 				lstrcat(v->szSourceName, szNewSourceName);
 				v->fSourceFromCommandLine = TRUE;
-}
+			}
 			break;
 		case 'S':	// Source device number
 			{
@@ -22497,6 +22630,9 @@ void DoNormalTSReaderWindow(char * szCmdLinePtr)
 	if (LoadSource(NULL) == TRUE)
 	{
 #ifndef LITE
+		// -autorecord without source parameters: start on the first selected mux of the plan
+		if (v->fAutoRecAtStart && (szCmdLinePtr == NULL || !lstrlen(szCmdLinePtr)))
+			szCmdLinePtr = AutoRec_GetStartupParameters();
 		v->szSourceParametersPtr = szCmdLinePtr;
 		if (ParseSourceModuleCommandLine(&v->ss, szCmdLinePtr, FALSE) == TRUE)
 #endif LITE
@@ -22710,7 +22846,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpszCmdLi
 	char szVersion[32];
 
 	// In memory of Rod Hewitt KG6TTD (G6TTD) - shows for 5 seconds, click/key to dismiss
-	ShowMemorialSplash(hInstance);
+	// (not for unattended -autorecord runs)
+	if (strstr(lpszCmdLine, "-autorecord") == NULL)
+		ShowMemorialSplash(hInstance);
 
 	nTSReaderReturnValue = 0;
 	wsprintf(szTemp, "%s: Version %s Built %s %s\n", gszAppName, GetTSRVersion(szVersion), __DATE__, __TIME__);

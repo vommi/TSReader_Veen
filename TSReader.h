@@ -1999,6 +1999,25 @@ typedef struct tag_Variables
 	char szRecentSources[8][MAX_PATH];	// most recently used sources, newest first
 	BOOL fSourceFromCommandLine;	// -s named the source for this run
 
+	// Auto TS Recorder (AutoRecord.c)
+	BOOL fAutoRecEnabled;			// run on a schedule
+	int nAutoRecMode;				// 0 = every N minutes, 1 = every N hours, 2 = daily at szAutoRecTimes
+	int nAutoRecInterval;
+	char szAutoRecTimes[64];		// "06:00,18:00"
+	int nAutoRecWeekdays;			// bit 0 = Monday ... bit 6 = Sunday
+	char szAutoRecPlan[64];			// CablePlans\<plan>.lst
+	char szAutoRecMuxes[1024];		// selected muxes (kHz, comma separated), "" = every mux
+	int nAutoRecStabilize, nAutoRecLockTimeout, nAutoRecRetries, nAutoRecLength;	// seconds
+	char szAutoRecFolder[MAX_PATH];
+	char szAutoRecPrefix[64], szAutoRecSuffix[64];
+	int nAutoRecKeep, nAutoRecMaxAgeDays, nAutoRecMinFreeGB;
+	BOOL fAutoRecCSV, fAutoRecSkipBusy, fAutoRecRestore;
+	BOOL fAutoRecAtStart;			// -autorecord: one pass after start-up, then exit
+
+	// Names of the muxes in cmuxes[] (from the cable channel plan). Kept here at the end rather
+	// in CABLEMUX: prebuilt modules (VLC, DVHS, Stradis...) use the original VARIABLES layout.
+	char szCableMuxLabels[MAX_CABLE_MUXES][48];
+
 	BYTE bSafety[1 * 1024 * 1024];
 } VARIABLES, *PVARIABLES;
 

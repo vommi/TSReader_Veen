@@ -118,10 +118,16 @@ Source: "{#SourcePath}\Sources\ReceiverControl\*.dll"; DestDir: "{app}\Sources\R
 Source: "{#SourcePath}\Forwarders\*.dll"; DestDir: "{app}\Forwarders"; Flags: ignoreversion
 Source: "{#SourcePath}\Satellites\*.ini"; DestDir: "{app}\Satellites"; Flags: ignoreversion; Permissions: users-modify
 
+; DVB-C channel plans for the tune dialog's Plan list (user-writable: NIT > Save as plans writes here)
+Source: "{#SourcePath}\CablePlans\*.lst"; DestDir: "{app}\CablePlans"; Flags: ignoreversion; Permissions: users-modify
+
 ; Embedded player: ffplay (LGPL FFmpeg build) + SDL2 + the VC++ runtime it needs, app-local
 Source: "{#SourcePath}\ffplay\*"; DestDir: "{app}\ffplay"; Flags: ignoreversion
 Source: "{#VcRedist}\vcruntime140.dll"; DestDir: "{app}\ffplay"; Flags: ignoreversion
 Source: "{#VcRedist}\vcruntime140_1.dll"; DestDir: "{app}\ffplay"; Flags: ignoreversion
+
+[Dirs]
+Name: "{app}\CablePlans"; Permissions: users-modify
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\TSReaderPro.exe"; IconFilename: "{app}\dvb.ico"; WorkingDir: "{app}"

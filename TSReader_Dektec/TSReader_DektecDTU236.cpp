@@ -166,11 +166,21 @@ void UpdateSignalReport()
 	char szTemp[128];
 
 	if (DTAPI_OK != theInput.GetStatistic(DTAPI_STAT_LOCK, fLocked) || !fLocked)
-		lstrcpy(szTemp, "Unlocked");
+	{
+		// the RF level tells "no signal" apart from "signal but no lock"
+		if (DTAPI_OK == theInput.GetStatistic(DTAPI_STAT_RFLVL_CHAN, nRFLevel))
+			sprintf(szTemp, "Unlocked Level %.1f dBmV", nRFLevel / 10.0);
+		else
+			lstrcpy(szTemp, "Unlocked");
+	}
 	else
 	{
 		int nLen = sprintf(szTemp, "Locked");
-		if (DTAPI_OK == theInput.GetStatistic(DTAPI_STAT_MER, dMER))
+		int nMER = 0;
+		// The DTU-236 reports MER as an integer in 0.1 dB units (373 = 37.3 dB)
+		if (DTAPI_OK == theInput.GetStatistic(DTAPI_STAT_MER, nMER))
+			nLen += sprintf(szTemp + nLen, " MER %.1f dB", nMER / 10.0);
+		else if (DTAPI_OK == theInput.GetStatistic(DTAPI_STAT_MER, dMER))
 			nLen += sprintf(szTemp + nLen, " MER %.1f dB", dMER);
 		if (DTAPI_OK == theInput.GetStatistic(DTAPI_STAT_RFLVL_CHAN, nRFLevel))
 			nLen += sprintf(szTemp + nLen, " Level %.1f dBmV", nRFLevel / 10.0);
@@ -340,11 +350,17 @@ BOOL TSReader_DeInit()
 	return TRUE;
 }
 
+BOOL fReceiveThreadStarted = FALSE;
+
 BOOL TSReader_Start()
 {
 	DWORD dwThreadID;
 
 	nFIFOOverrunCounter = 0;
+	// Clear flags a previous Stop may have left behind (e.g. Stop after a tune without lock)
+	ss->fTerminateReadThread = FALSE;
+	ss->fReadThreadTerminated = FALSE;
+	fReceiveThreadStarted = TRUE;
 
 	ss->hReadDataThread = CreateThread(NULL, 0, DektecReceiveThread, (LPVOID)0, CREATE_SUSPENDED, &dwThreadID);
 	SourceHelper_SetWorkerThreadPriorities(FALSE);
@@ -356,9 +372,13 @@ BOOL TSReader_Stop()
 {
 	DebugTrace("enter Stop()");
 
+	// TSReader calls Stop even when Start never ran (a retune that didn't lock)
+	if (!fReceiveThreadStarted)
+		return TRUE;
 	ss->fTerminateReadThread = TRUE;
 	while (ss->fReadThreadTerminated == FALSE)
 		Sleep(50);
+	fReceiveThreadStarted = FALSE;
 
 	DebugTrace("leave Stop()");
 	return TRUE;

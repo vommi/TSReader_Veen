@@ -752,38 +752,48 @@ void SetupCableListView(HWND hDlg)
 	LV_COLUMN lvc; 
 	LV_ITEM lvi; 
 
-	// Initialize the LV_COLUMN structure. 
-	lvc.mask = LVCF_FMT | LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM; 
-	lvc.pszText = szTemp; 
+	ListView_DeleteAllItems(hWndMuxList);
+	if (Header_GetItemCount(ListView_GetHeader(hWndMuxList)) > 0)
+		goto SetupCableListView_Populate;		// columns already set up (plan changed)
 
-	// Satellite list first. 
-	lvc.fmt = LVCFMT_CENTER; 
-	lvc.cx = 75; 
+	// Initialize the LV_COLUMN structure.
+	lvc.mask = LVCF_FMT | LVCF_WIDTH | LVCF_TEXT | LVCF_SUBITEM;
+	lvc.pszText = szTemp;
+
+	// Satellite list first.
+	lvc.fmt = LVCFMT_CENTER;
+	lvc.cx = 58;
 	lstrcpy(szTemp, TEXT("Frequency"));
-	ListView_InsertColumn(hWndMuxList, nColumnPosition++, &lvc); 
+	ListView_InsertColumn(hWndMuxList, nColumnPosition++, &lvc);
 
 	lvc.fmt = LVCFMT_CENTER; 
-	lvc.cx = 75; 
+	lvc.cx = 66; 
 	lstrcpy(szTemp, TEXT("Symbol Rate"));
 	ListView_InsertColumn(hWndMuxList, nColumnPosition++, &lvc); 
 
 	lvc.fmt = LVCFMT_CENTER; 
-	lvc.cx = 70; 
+	lvc.cx = 62; 
 	lstrcpy(szTemp, TEXT("QAM"));
 	ListView_InsertColumn(hWndMuxList, nColumnPosition++, &lvc); 
 
 	lvc.fmt = LVCFMT_CENTER; 
-	lvc.cx = 60; 
+	lvc.cx = 56; 
 	lstrcpy(szTemp, TEXT("Inversion"));
 	ListView_InsertColumn(hWndMuxList, nColumnPosition++, &lvc); 
 
 	lvc.fmt = LVCFMT_CENTER; 
-	lvc.cx = 70; 
+	lvc.cx = 62; 
 	lstrcpy(szTemp, TEXT("Bandwidth"));
-	ListView_InsertColumn(hWndMuxList, nColumnPosition++, &lvc); 
+	ListView_InsertColumn(hWndMuxList, nColumnPosition++, &lvc);
+
+	lvc.fmt = LVCFMT_LEFT;
+	lvc.cx = 72;
+	lstrcpy(szTemp, TEXT("Name"));
+	ListView_InsertColumn(hWndMuxList, nColumnPosition++, &lvc);
 
 	ListView_SetExtendedListViewStyle(hWndMuxList, LVS_EX_FULLROWSELECT);
 
+SetupCableListView_Populate:
 	// Populate mux list
 	for (nIndex = 0; nIndex < v->nCableMuxes; nIndex++)
 	{
@@ -798,6 +808,8 @@ void SetupCableListView(HWND hDlg)
 		lvi.lParam = (LPARAM) 0;    // item data 
 		ListView_InsertItem(hWndMuxList, &lvi);
 	}
+	if (v->nCableMuxes)
+		ListView_EnsureVisible(hWndMuxList, 0, FALSE);	// start at the first mux
 }
 
 void SetupTerrestrialListView(HWND hDlg, BOOL fInit)
@@ -1292,6 +1304,9 @@ void GetCableDispInfo(LV_DISPINFO *pnmv)
 				break;
 			}
 			break;
+		case 5:
+			lstrcpy(pnmv->item.pszText, v->szCableMuxLabels[nMuxIndex]);
+			break;
 		}
 	}
 }
@@ -1464,6 +1479,142 @@ void UpdateCableMux(HWND hDlg, int nMuxItem)
 	CheckDlgButton(hDlg, IDC_BANDWIDTH_8MHz, (v->cmuxes[nMuxItem].nBandwidth == 2));
 }
 
+// ---------------------------------------------------------------------------------
+// Cable channel plans: text files in <TSReader>\CablePlans\*.lst, one mux per line:
+//   frequency_kHz  symbolrate_kS  QAM(16/32/64/128/256)  inverted(0/1)  bandwidth_MHz(6/7/8)  name
+// '#' starts a comment. DigitalTV-c.lst (old DVBViewer format) is offered as "(legacy list)".
+// The chosen plan is remembered in v->szDVBCBandplan.
+// ---------------------------------------------------------------------------------
+#define CABLE_PLAN_LEGACY "(legacy DigitalTV-c.lst)"
+
+static void GetCablePlanPath(const char * szPlan, char * szPath)
+{
+	SourceHelper_GetTSReaderEXEDirectory(v->hInstance, szPath, MAX_PATH);
+	lstrcat(szPath, "\\CablePlans\\");
+	lstrcat(szPath, szPlan);
+	lstrcat(szPath, ".lst");
+}
+
+typedef struct
+{
+	CABLEMUX mux;
+	char szLabel[48];
+} CABLEPLANENTRY;
+
+static int __cdecl SortCablePlanEntries(const void * elem1, const void * elem2)
+{
+	return SortCableCompareFunction(&((const CABLEPLANENTRY *)elem1)->mux, &((const CABLEPLANENTRY *)elem2)->mux);
+}
+
+static void LoadCablePlan(const char * szPlan)
+{
+	static CABLEPLANENTRY entries[MAX_CABLE_MUXES];
+	char szPath[MAX_PATH];
+	HANDLE hFile;
+	char szLine[256];
+	int nEntries = 0, i;
+
+	memset(v->szCableMuxLabels, 0, sizeof(v->szCableMuxLabels));
+	if (lstrcmp(szPlan, CABLE_PLAN_LEGACY) == 0)
+	{
+		LoadCableFile();
+		return;
+	}
+	v->nCableMuxes = 0;
+	GetCablePlanPath(szPlan, szPath);
+	hFile = CreateFile(szPath, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	if (hFile == INVALID_HANDLE_VALUE)
+		return;
+	while (nEntries < MAX_CABLE_MUXES && SourceHelper_ReadLine(hFile, szLine, sizeof(szLine)))
+	{
+		int nFrequency, nSymbolRate, nQAM, nInverted, nBandwidth, nUsed = 0;
+		CABLEPLANENTRY * pEntry = &entries[nEntries];
+		char * pLabel;
+		char * pComment = strchr(szLine, '#');
+
+		if (pComment != NULL)
+			*pComment = '\0';
+		if (sscanf(szLine, "%d %d %d %d %d %n", &nFrequency, &nSymbolRate, &nQAM, &nInverted, &nBandwidth, &nUsed) < 5)
+			continue;
+		memset(pEntry, 0, sizeof(*pEntry));
+		pEntry->mux.nFrequency = nFrequency;
+		pEntry->mux.nSymbolRate = nSymbolRate;
+		switch (nQAM)
+		{
+		case 16:  pEntry->mux.nQAM = 0; break;
+		case 32:  pEntry->mux.nQAM = 1; break;
+		case 64:  pEntry->mux.nQAM = 2; break;
+		case 128: pEntry->mux.nQAM = 3; break;
+		default:  pEntry->mux.nQAM = 4; break;		// 256
+		}
+		pEntry->mux.fSpectrumInversion = nInverted ? TRUE : FALSE;
+		pEntry->mux.nBandwidth = nBandwidth == 6 ? 0 : (nBandwidth == 7 ? 1 : 2);
+		pLabel = szLine + nUsed;
+		while (*pLabel == ' ' || *pLabel == '\t')
+			pLabel++;
+		lstrcpyn(pEntry->szLabel, pLabel, sizeof(pEntry->szLabel));
+		// trim trailing white space
+		{
+			int nEnd = lstrlen(pEntry->szLabel);
+			while (nEnd > 0 && (pEntry->szLabel[nEnd - 1] == ' ' || pEntry->szLabel[nEnd - 1] == '\t' || pEntry->szLabel[nEnd - 1] == '\r'))
+				pEntry->szLabel[--nEnd] = '\0';
+		}
+		nEntries++;
+	}
+	CloseHandle(hFile);
+	// sort mux and name together, then store them side by side
+	qsort(entries, nEntries, sizeof(CABLEPLANENTRY), SortCablePlanEntries);
+	for (i = 0; i < nEntries; i++)
+	{
+		v->cmuxes[i] = entries[i].mux;
+		lstrcpy(v->szCableMuxLabels[i], entries[i].szLabel);
+	}
+	v->nCableMuxes = nEntries;
+}
+
+// Fills the Plan dropdown and loads the remembered (or default) plan; returns the number of plans
+static int FillCablePlans(HWND hDlg)
+{
+	HWND hCombo = GetDlgItem(hDlg, IDC_CABLE_PLAN);
+	char szPath[MAX_PATH];
+	WIN32_FIND_DATA fd;
+	HANDLE hFind;
+	int nIndex;
+
+	SendMessage(hCombo, CB_RESETCONTENT, 0, 0);
+	SourceHelper_GetTSReaderEXEDirectory(v->hInstance, szPath, MAX_PATH);
+	lstrcat(szPath, "\\CablePlans\\*.lst");
+	hFind = FindFirstFile(szPath, &fd);
+	if (hFind != INVALID_HANDLE_VALUE)
+	{
+		do
+		{
+			char * pExtension = strrchr(fd.cFileName, '.');
+			if (pExtension != NULL)
+				*pExtension = '\0';
+			SendMessage(hCombo, CB_ADDSTRING, 0, (LPARAM)fd.cFileName);
+		} while (FindNextFile(hFind, &fd));
+		FindClose(hFind);
+	}
+	SourceHelper_GetTSReaderEXEDirectory(v->hInstance, szPath, MAX_PATH);
+	lstrcat(szPath, "\\DigitalTV-c.lst");
+	if (GetFileAttributes(szPath) != INVALID_FILE_ATTRIBUTES)
+		SendMessage(hCombo, CB_ADDSTRING, 0, (LPARAM)CABLE_PLAN_LEGACY);
+
+	nIndex = (int)SendMessage(hCombo, CB_FINDSTRINGEXACT, (WPARAM)-1, (LPARAM)v->szDVBCBandplan);
+	if (nIndex == CB_ERR)
+		nIndex = (int)SendMessage(hCombo, CB_FINDSTRINGEXACT, (WPARAM)-1, (LPARAM)"Finland (114 MHz +)");
+	if (nIndex == CB_ERR)
+		nIndex = 0;
+	SendMessage(hCombo, CB_SETCURSEL, nIndex, 0);
+	if (SendMessage(hCombo, CB_GETLBTEXT, nIndex, (LPARAM)szPath) != CB_ERR)
+	{
+		lstrcpyn(v->szDVBCBandplan, szPath, sizeof(v->szDVBCBandplan));
+		LoadCablePlan(v->szDVBCBandplan);
+	}
+	return (int)SendMessage(hCombo, CB_GETCOUNT, 0, 0);
+}
+
 BOOL CALLBACK TuneDVBCableDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch(uMsg)
@@ -1472,11 +1623,19 @@ BOOL CALLBACK TuneDVBCableDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lP
 		{
 			char szTemp[128];
 
-			if (fTuneDialogFirstTime == TRUE)
+			int nPlans = FillCablePlans(hDlg);
+
+			if (v->ss.nFrequency == 0 && v->nCableMuxes)
 			{
-				fTuneDialogFirstTime = FALSE;
-				LoadCableFile();
+				// No previous tune: start from the first mux of the plan
+				v->ss.nFrequency = v->cmuxes[0].nFrequency;
+				v->ss.nSymbolRate = v->cmuxes[0].nSymbolRate;
+				v->ss.nQAM = v->cmuxes[0].nQAM;
+				v->ss.fSpectrumInversion = v->cmuxes[0].fSpectrumInversion;
+				v->ss.nBandwidth = v->cmuxes[0].nBandwidth;
 			}
+
+			fTuneDialogFirstTime = FALSE;
 			v->fBlockFirstMuxListSelection = FALSE;
 
 			wsprintf(szTemp, "Tune %s", v->szSourceModuleDescription);
@@ -1509,7 +1668,7 @@ BOOL CALLBACK TuneDVBCableDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lP
 			}
 			SendDlgItemMessage(hDlg, IDC_QAM_MODE, CB_SETCURSEL, (WPARAM)v->ss.nQAM, 0);
 
-			if (v->nCableMuxes)
+			if (nPlans || v->nCableMuxes)
 				SetupCableListView(hDlg);
 			else
 			{
@@ -1564,14 +1723,28 @@ BOOL CALLBACK TuneDVBCableDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lP
 		case IDCANCEL:
 			EndDialog(hDlg, FALSE);
 			break;
+		case IDC_CABLE_PLAN:
+			if (HIWORD(wParam) == CBN_SELCHANGE)
+			{
+				char szPlan[MAX_PATH];
+				int nIndex = (int)SendDlgItemMessage(hDlg, IDC_CABLE_PLAN, CB_GETCURSEL, 0, 0);
+
+				if (SendDlgItemMessage(hDlg, IDC_CABLE_PLAN, CB_GETLBTEXT, nIndex, (LPARAM)szPlan) != CB_ERR)
+				{
+					lstrcpyn(v->szDVBCBandplan, szPlan, sizeof(v->szDVBCBandplan));
+					LoadCablePlan(v->szDVBCBandplan);
+					SetupCableListView(hDlg);
+				}
+			}
+			break;
 		}
 		break;
 	case WM_CLOSE:
 		EndDialog(hDlg, FALSE);
 		break;
-	case WM_NOTIFY: 
+	case WM_NOTIFY:
 		switch (((LPNMHDR) lParam)->code)
-		{ 
+		{
 		case LVN_GETDISPINFO:
 			{
 				NMLVDISPINFO * pnmv = (NMLVDISPINFO *)lParam;
