@@ -1055,6 +1055,7 @@
 #define IDC_AR_STOP                     1421
 #define ID_RECORD_AUTORECORDER          50290
 #define ID_RECORD_AUTORECORDER_RUN      50291
+#define ID_EPG_LANGUAGE_BASE            50292	// + 0 stream order, + 1..16 seen languages
 #define IDD_EPG_SET_TIME                1186
 #define IDC_EPG_TIME_DATE               1379
 #define IDC_EPG_TIME_TIME               1380
@@ -1065,7 +1066,7 @@
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        1190
-#define _APS_NEXT_COMMAND_VALUE         50292
+#define _APS_NEXT_COMMAND_VALUE         50310
 #define _APS_NEXT_CONTROL_VALUE         1422
 #define _APS_NEXT_SYMED_VALUE           101
 #endif

@@ -34,6 +34,9 @@ int GetLogicalChannelNumber(int nProgramNumber);
 void SetupHorizontalScrollRange(HWND hWnd);
 
 BOOL fShownScreenEventsWarning;
+static HMENU hMenuEITLanguage;
+void FillEITLanguageMenu(HMENU hPopup, UINT uBase);
+BOOL SetEITLanguageFromMenu(UINT nID, UINT uBase);
 
 #define EPG_TITLE_TIMER 2			// timer 1 is used by EPGPaint when there are no events
 BOOL fEPGWaitingForStreamTime;		// grid opened before the first TDT/TOT - jump to it when it arrives
@@ -100,6 +103,8 @@ void CreateEPGTimeSourceMenu(HWND hWnd)
 	AppendMenu(hMenuTime, MF_SEPARATOR, 0, NULL);
 	AppendMenu(hMenuTime, MF_STRING, ID_EPG_TIME_GOTO_NOW, "Go to &now\tN");
 	AppendMenu(hMenuBar, MF_POPUP, (UINT_PTR)hMenuTime, "&Time Source");
+	hMenuEITLanguage = CreatePopupMenu();		// filled when opened (FillEITLanguageMenu)
+	AppendMenu(hMenuBar, MF_POPUP, (UINT_PTR)hMenuEITLanguage, "EIT &Language");
 	SetMenu(hWnd, hMenuBar);
 	UpdateEPGTimeSourceMenu(hWnd);
 }
@@ -2884,7 +2889,15 @@ LRESULT FAR PASCAL EPGridWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lPar
 		case ID_EPG_TIME_GOTO_NOW:
 			EPGGotoNow(hWnd);
 			break;
+		default:
+			if (SetEITLanguageFromMenu(LOWORD(wParam), ID_EPG_LANGUAGE_BASE))
+				InvalidateRect(hWnd, NULL, FALSE);
+			break;
 		}
+		break;
+	case WM_INITMENUPOPUP:
+		if ((HMENU)wParam == hMenuEITLanguage)
+			FillEITLanguageMenu(hMenuEITLanguage, ID_EPG_LANGUAGE_BASE);
 		break;
 #endif LITE
 	case WM_TIMER:

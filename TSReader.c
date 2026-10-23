@@ -7712,22 +7712,23 @@ BOOL LocateCurrentProgram(int nPMTIndex, char * szCurrentProgram, char * szDescr
 	PEITEVENT pTargetEvent = NULL;
 	SYSTEMTIME stSystemTime;
 
+	DWORD64 lnNow;
+
+	// "Now" is the EPG time source (stream TDT/TOT by default), so recordings show the
+	// event that was on when they were made
+	GetEPGNow(&lnNow);
 	EnterCriticalSection(&v->csEIT);
 	pCurrent = v->pEvents[nServiceID];
 	if (pCurrent != NULL)
 	{
 		do
 		{
-			FILETIME ftProgramStart, ftNow;
-			DWORD64 lnProgramStart, lnNow;
+			FILETIME ftProgramStart;
+			DWORD64 lnProgramStart;
 			DWORD64 lnMultiplier = 10000000;
 			DWORD64 lnRunTime = ( (pCurrent->stRunTime.wHour * 60 * 60)
 									   + (pCurrent->stRunTime.wMinute * 60)
 									   + (pCurrent->stRunTime.wSecond) ) * lnMultiplier;
-
-			GetSystemTime(&stSystemTime);
-			SystemTimeToFileTime(&stSystemTime, &ftNow);
-			memcpy(&lnNow, &ftNow, sizeof(DWORD64));
 
 			SystemTimeToFileTime(&pCurrent->stStartTime, &ftProgramStart);
 			memcpy(&lnProgramStart, &ftProgramStart, sizeof(DWORD64));
@@ -7889,6 +7890,14 @@ void DrawThumbnail(HDC hDC, int nPMTIndex, int nESIndex, int yCurrent, int yEnd,
 					  nThumbnailHeight,
 					  szChannelDescription,
 					  &v->logfontChannelFont,
+					  2,
+					  2,
+					  RGB(0, 0, 0));
+	_ISDrawTextOnRGB2(v->pNewPicture,
+					  nThumbnailWidth,
+					  nThumbnailHeight,
+					  szChannelDescription,
+					  &v->logfontChannelFont,
 					  1,
 					  1,
 					  dwChannelTextColor);				
@@ -7901,6 +7910,15 @@ void DrawThumbnail(HDC hDC, int nPMTIndex, int nESIndex, int yCurrent, int yEnd,
 	{
 		if (LocateCurrentProgram(nPMTIndex, szCurrentProgram, NULL, NULL, NULL, TRUE) == TRUE)
 		{
+			// Dark shadow first so the event name reads on bright pictures too
+			_ISDrawTextOnRGB2(v->pNewPicture,
+							  nThumbnailWidth,
+							  nThumbnailHeight,
+							  szCurrentProgram,
+							  &v->logfontChannelFont,
+							  2,
+							  v->textsizeChannelFont.cy + 1,
+							  RGB(0, 0, 0));
 			_ISDrawTextOnRGB2(v->pNewPicture,
 							  nThumbnailWidth,
 							  nThumbnailHeight,
@@ -12875,16 +12893,21 @@ BOOL CALLBACK ConfirmATSCRCDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM l
 	return FALSE;
 }
 
-void GetSourceDispInfo(LV_DISPINFO *pnmv) 
-{ 
-    // Provide the item or subitem's text, if requested. 
+int nRecentSourcesListed;		// leading list items that are recent sources (marked with ») when the list has no groups
+
+void GetSourceDispInfo(LV_DISPINFO *pnmv)
+{
+    // Provide the item or subitem's text, if requested.
     if (pnmv->item.mask & LVIF_TEXT)
-	{ 
+	{
         int nModuleIndex = (int)(pnmv->item.iItem);
 		switch(pnmv->item.iSubItem)
 		{
 		case 0:
-			lstrcpy(pnmv->item.pszText, v->sourcemodules[nModuleIndex].szDisplayName);
+			if (nModuleIndex < nRecentSourcesListed)
+				wsprintf(pnmv->item.pszText, "\xbb %s", v->sourcemodules[nModuleIndex].szDisplayName);
+			else
+				lstrcpy(pnmv->item.pszText, v->sourcemodules[nModuleIndex].szDisplayName);
 			break;
 		case 1:
 			lstrcpy(pnmv->item.pszText, v->sourcemodules[nModuleIndex].szDescription);
@@ -13164,6 +13187,65 @@ int PopulateSourceList(HWND hDlg, HWND hWndLV)
 }
 
 #define MAX_RECENT_SOURCES 8
+#define MAX_RECENT_SOURCES_LISTED 4		// shown at the top of the source dialog
+extern int nRecentSourcesListed;
+
+// Moves the most recently used sources to the top of the source dialog's list, in a
+// "Recently used" group above all the others (the list items are callbacks indexed by
+// position in v->sourcemodules, so reordering the array reorders the list)
+void PutRecentSourcesFirst(HWND hWndLV, int nSources)
+{
+	int nRecent = 0, r, i;
+
+	for (r = 0; r < MAX_RECENT_SOURCES && nRecent < MAX_RECENT_SOURCES_LISTED; r++)
+	{
+		if (!lstrlen(v->szRecentSources[r]))
+			continue;
+		for (i = nRecent; i < nSources; i++)
+			if (lstrcmpi(v->sourcemodules[i].szFilename, v->szRecentSources[r]) == 0)
+				break;
+		if (i == nSources)
+			continue;
+		if (i != nRecent)
+		{
+			void * pModule = LocalAlloc(LPTR, sizeof(v->sourcemodules[0]));
+			if (pModule == NULL)
+				break;
+			memcpy(pModule, &v->sourcemodules[i], sizeof(v->sourcemodules[0]));
+			memmove(&v->sourcemodules[nRecent + 1], &v->sourcemodules[nRecent], (i - nRecent) * sizeof(v->sourcemodules[0]));
+			memcpy(&v->sourcemodules[nRecent], pModule, sizeof(v->sourcemodules[0]));
+			LocalFree(pModule);
+		}
+		nRecent++;
+	}
+	nRecentSourcesListed = nRecent;
+	if (nRecent && ListView_EnableGroupView(hWndLV, TRUE) > 0)
+	{
+		nRecentSourcesListed = 0;		// the group header says it, no marker needed
+		LVGROUP lvg;
+
+		memset(&lvg, 0, sizeof(lvg));
+		lvg.cbSize = sizeof(lvg);
+		lvg.mask = LVGF_HEADER | LVGF_GROUPID;
+		lvg.pszHeader = L"Recently used";
+		lvg.iGroupId = 1;
+		ListView_InsertGroup(hWndLV, -1, &lvg);
+		lvg.pszHeader = L"All sources";
+		lvg.iGroupId = 2;
+		ListView_InsertGroup(hWndLV, -1, &lvg);
+		for (i = 0; i < nSources; i++)
+		{
+			LVITEM lvi;
+
+			memset(&lvi, 0, sizeof(lvi));
+			lvi.mask = LVIF_GROUPID;
+			lvi.iItem = i;
+			lvi.iGroupId = i < nRecent ? 1 : 2;
+			ListView_SetItem(hWndLV, &lvi);
+		}
+	}
+	InvalidateRect(hWndLV, NULL, TRUE);
+}
 
 BOOL LoadSource(HWND hWnd);
 void EnableDisableSourceMenuItems(HWND hWnd);
@@ -13292,6 +13374,7 @@ BOOL CALLBACK SourceDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 				int nSources = PopulateSourceList(hDlg, hWndSourceList);
 				int i;
 
+				PutRecentSourcesFirst(hWndSourceList, nSources);
 				v->nSelectedSource = -1;
 				// Start on the current source so OK / Enter keeps it
 				for (i = 0; i < nSources; i++)

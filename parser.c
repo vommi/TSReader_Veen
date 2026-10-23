@@ -452,6 +452,44 @@ ParseATSCETTPacket_Windup:
 	return;
 }
 
+// Rank of an EIT text language in v->szEITLanguages (lower is better); languages not
+// listed, or any language when no preference is set, rank last and the first one wins
+static int EITLanguageRank(const BYTE * pCode)
+{
+	char szCode[4];
+	const char * pFound;
+	int i;
+
+	for (i = 0; i < 3; i++)
+		szCode[i] = (char)tolower(pCode[i]);
+	szCode[3] = '\0';
+	pFound = strstr(v->szEITLanguages, szCode);
+	if (szCode[0] == '\0' || pFound == NULL)
+		return 100;
+	return (int)(pFound - v->szEITLanguages);
+}
+
+// Remembers which languages the stream's EIT carries, for the language menus
+static void NoteEITLanguage(const BYTE * pCode)
+{
+	int i;
+
+	if (pCode[0] < 'A')
+		return;
+	for (i = 0; i < 16; i++)
+	{
+		if (v->szEITLanguagesSeen[i][0] == '\0')
+		{
+			v->szEITLanguagesSeen[i][0] = (char)tolower(pCode[0]);
+			v->szEITLanguagesSeen[i][1] = (char)tolower(pCode[1]);
+			v->szEITLanguagesSeen[i][2] = (char)tolower(pCode[2]);
+			return;
+		}
+		if (strnicmp(v->szEITLanguagesSeen[i], (const char *)pCode, 3) == 0)
+			return;
+	}
+}
+
 void ParseDVBEITPacket(BYTE * pSectionPointer, int nPacketLength)
 {
 	int nSectionLength, nServiceID, nTableID;
@@ -582,6 +620,7 @@ void ParseDVBEITPacket(BYTE * pSectionPointer, int nPacketLength)
 			int nYear, nMonth, nDay;
 			char szShortEventDescription[4096] = {0};
 			char szLongEventDescription[4096] = {0};
+			int nShortRank = 1000, nLongRank = 1000;	// best EIT language so far (see EITLanguageRank)
 
 			// Get data from each event
 			memset(&thiseitevent, 0, sizeof(thiseitevent));
@@ -606,6 +645,7 @@ void ParseDVBEITPacket(BYTE * pSectionPointer, int nPacketLength)
 			thiseitevent.fFreeCAMode = (pSectionPointer[10] >> 4) & 1;
 			thiseitevent.nRunningStatus = (pSectionPointer[10] >> 5) & 7;
 			thiseitevent.nSource = nTableID;
+			thiseitevent.nFlags = (v->nEITLanguageGeneration & 0xff) << 8;	// which language choice the text was taken with
 
 			nDescriptorsLoopLength = ((pSectionPointer[10] << 8 ) | pSectionPointer[11]) & 0xfff;
 			nSectionLength -= 12;
@@ -635,6 +675,17 @@ void ParseDVBEITPacket(BYTE * pSectionPointer, int nPacketLength)
 								if (memcmp(v->szEITLanguageFilterLanguage, &pSectionPointer[2], 3) != 0)
 									goto LogDefaultEITDescriptor;
 							}
+
+							// One short event per language: keep the most preferred one
+							NoteEITLanguage(&pSectionPointer[2]);
+							{
+								int nRank = EITLanguageRank(&pSectionPointer[2]);
+								if (nRank >= nShortRank)
+									break;
+								nShortRank = nRank;
+							}
+							thiseitevent.szEventName[0] = '\0';
+							szShortEventDescription[0] = '\0';
 
 							thiseitevent.nFlags |= EIT_FLAG_SHORT_EVENT;
 							if (nLength > 0)
@@ -674,18 +725,28 @@ void ParseDVBEITPacket(BYTE * pSectionPointer, int nPacketLength)
 							int nTextLength;
 							int nLengthOfItems = pSectionPointer[6];
 							unsigned char * pText = &pSectionPointer[7];
+							int nRank = EITLanguageRank(&pSectionPointer[3]);
 
+							// Long texts are split over several extended event descriptors (per
+							// language): join the parts of the most preferred language
+							if (nRank > nLongRank)
+								break;
+							if (nRank < nLongRank)
+							{
+								nLongRank = nRank;
+								szLongEventDescription[0] = '\0';
+							}
 							thiseitevent.nFlags |= EIT_FLAG_LONG_EVENT;
 							pText += nLengthOfItems;		// skip to text
 							nTextLength = (*pText++) & 0xff;	// get length of text
 							if (nTextLength > 0)
 							{
 								int k;
-								int o = 0;
+								int o = lstrlen(szLongEventDescription);
 
-								for (k = 0; k < nTextLength; k++)
+								for (k = 0; k < nTextLength && o < sizeof(szLongEventDescription) - 1; k++)
 								{
-									if (*pText < ' ' || *pText == 0x80 || *pText == 0x87) 
+									if (*pText < ' ' || *pText == 0x80 || *pText == 0x87)
 									{
 										pText++;
 									}
@@ -832,6 +893,27 @@ LogDefaultEITDescriptor:
 						{
 							if (pCurrent->nEventID == thiseitevent.nEventID)
 							{
+								// The EIT language choice changed since this event was stored: take
+								// its text again (in the newly preferred language)
+								if (((pCurrent->nFlags >> 8) & 0xff) != ((thiseitevent.nFlags >> 8) & 0xff) &&
+									(thiseitevent.nFlags & EIT_FLAG_SHORT_EVENT))
+								{
+									lstrcpy(pCurrent->szEventName, thiseitevent.szEventName);
+									if (pCurrent->szShortEventDescription != NULL)
+										LocalFree(pCurrent->szShortEventDescription);
+									pCurrent->szShortEventDescription = NULL;
+									if (lstrlen(szShortEventDescription))
+									{
+										pCurrent->szShortEventDescription = LocalAlloc(LPTR, lstrlen(szShortEventDescription) + 1 + 4);
+										lstrcpy(pCurrent->szShortEventDescription, szShortEventDescription);
+									}
+									if (lstrlen(szLongEventDescription) && pCurrent->szLongEventDescription != NULL)
+									{
+										LocalFree(pCurrent->szLongEventDescription);
+										pCurrent->szLongEventDescription = NULL;
+									}
+									pCurrent->nFlags = (pCurrent->nFlags & 0xff) | (thiseitevent.nFlags & 0xff00);
+								}
 								// already got this event, but check to see if there's no
 								// extended description and we have an extended description
 								if (pCurrent->szLongEventDescription == NULL)

@@ -2017,6 +2017,10 @@ typedef struct tag_Variables
 	// Names of the muxes in cmuxes[] (from the cable channel plan). Kept here at the end rather
 	// in CABLEMUX: prebuilt modules (VLC, DVHS, Stradis...) use the original VARIABLES layout.
 	char szCableMuxLabels[MAX_CABLE_MUXES][48];
+	// EIT text language preference: codes in order, e.g. "fin swe"; empty = as the stream lists them
+	char szEITLanguages[32];
+	char szEITLanguagesSeen[16][4];		// languages seen in short event descriptors (not saved)
+	int nEITLanguageGeneration;			// bumped on a change so stored events take the new language
 
 	BYTE bSafety[1 * 1024 * 1024];
 } VARIABLES, *PVARIABLES;

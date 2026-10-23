@@ -97,6 +97,74 @@ int GetVideoThumbnailCount()
 	return nVideoThumbnails;
 }
 
+BOOL GetPresentEITEventName(int nServiceID, char * szName, int nSize);
+BOOL ServiceHasEIT(int nServiceID);
+
+// Caption at the bottom of a thumbnail: service name and the EIT event on now, so it is
+// easy to see at a glance which services carry EPG data
+static void DrawMosaicCaption(HDC hDC, int nX, int nY, int nWidth, int nHeight, int nProgramNumber)
+{
+	static HFONT hFont, hFontBold;
+	static int nFontHeight;
+	char szService[128], szEvent[256];
+	int nLine, nCaptionHeight;
+	RECT rc;
+	HBRUSH hBrush;
+
+	if (nHeight < 60 || nWidth < 80)
+		return;
+	nLine = nHeight / 9;
+	if (nLine < 12)
+		nLine = 12;
+	if (nLine > 20)
+		nLine = 20;
+	if (nLine != nFontHeight)
+	{
+		if (hFont != NULL)
+			DeleteObject(hFont);
+		if (hFontBold != NULL)
+			DeleteObject(hFontBold);
+		hFont = CreateFont(-nLine, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, "Segoe UI");
+		hFontBold = CreateFont(-nLine, 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, "Segoe UI");
+		nFontHeight = nLine;
+	}
+
+	if (v->pChannelData[nProgramNumber] != NULL && lstrlen(v->pChannelData[nProgramNumber]->szShortName))
+		lstrcpyn(szService, v->pChannelData[nProgramNumber]->szShortName, sizeof(szService));
+	else
+		wsprintf(szService, "Program %d", nProgramNumber);
+
+	nCaptionHeight = 2 * (nLine + nLine / 3) + 4;
+	rc.left = nX;
+	rc.right = nX + nWidth;
+	rc.bottom = nY + nHeight;
+	rc.top = rc.bottom - nCaptionHeight;
+	hBrush = CreateSolidBrush(RGB(20, 24, 32));
+	FillRect(hDC, &rc, hBrush);
+	DeleteObject(hBrush);
+	SetBkMode(hDC, TRANSPARENT);
+
+	rc.left += 5;
+	rc.right -= 5;
+	rc.top += 2;
+	rc.bottom = rc.top + nLine + nLine / 3;
+	SelectObject(hDC, hFontBold);
+	SetTextColor(hDC, RGB(255, 255, 255));
+	DrawText(hDC, szService, -1, &rc, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS | DT_VCENTER);
+
+	rc.top = rc.bottom;
+	rc.bottom = rc.top + nLine + nLine / 3;
+	SelectObject(hDC, hFont);
+	if (GetPresentEITEventName(nProgramNumber, szEvent, sizeof(szEvent)))
+		SetTextColor(hDC, RGB(255, 210, 90));
+	else
+	{
+		SetTextColor(hDC, RGB(140, 140, 150));
+		lstrcpy(szEvent, ServiceHasEIT(nProgramNumber) ? "EIT: nothing on now" : "No EIT");
+	}
+	DrawText(hDC, szEvent, -1, &rc, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS | DT_VCENTER);
+}
+
 void PaintVideoMosaic(HWND hWnd, WPARAM wParam, LPARAM lParam)
 {
 	int nPMTIndex, nESIndex;
@@ -201,6 +269,7 @@ void PaintVideoMosaic(HWND hWnd, WPARAM wParam, LPARAM lParam)
 							   nCurrentX, nCurrentY,
 							   nTargetWidth, nTargetHeight,
 							   NULL);
+					DrawMosaicCaption(hDC, nCurrentX, nCurrentY, nTargetWidth, nTargetHeight, v->pat.pmt[nPMTIndex].nProgramNumber);
 					mt[nThumbnailIndex].nProgramNumber = v->pat.pmt[nPMTIndex].nProgramNumber;
 					mt[nThumbnailIndex].rc.top = nCurrentY;
 					mt[nThumbnailIndex].rc.left = nCurrentX;

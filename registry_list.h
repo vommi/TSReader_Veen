@@ -52,6 +52,7 @@ static REGISTRYLIST rl[] =
 	"StreamProcessingThreadPriority", offsetof(VARIABLES, nStreamProcessingThreadPriority), sizeofstruct(VARIABLES, nStreamProcessingThreadPriority), REG_DWORD,
 	"ProcessPriority", offsetof(VARIABLES, nProcessPriority), sizeofstruct(VARIABLES, nProcessPriority), REG_DWORD,
 	"KeepPastEITData", offsetof(VARIABLES, fKeepPastEITData), sizeofstruct(VARIABLES, fKeepPastEITData), REG_DWORD,
+	"EITLanguages", offsetof(VARIABLES, szEITLanguages), sizeofstruct(VARIABLES, szEITLanguages), REG_SZ,
 	"EPGTimeSource", offsetof(VARIABLES, nEPGTimeSource), sizeofstruct(VARIABLES, nEPGTimeSource), REG_DWORD,
 	"DisableResolutionWarning", offsetof(VARIABLES, fDisableResolutionWarning), sizeofstruct(VARIABLES, fDisableResolutionWarning), REG_DWORD,
 	"CurrentBATID", offsetof(VARIABLES, nCurrentBATID), sizeofstruct(VARIABLES, nCurrentBATID), REG_DWORD,

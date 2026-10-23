@@ -35,6 +35,12 @@ static UINT uStopCommand;				// WM_COMMAND sent to hWndNotify to stop the stream
 
 void FFplayEmbedStop();
 BOOL IsSubtitleStream(int nPMTProgramIndex, int nESIndex);
+void FFplayEPG_Create(HWND hWnd, int nServiceID);
+void FFplayEPG_Destroy();
+void FFplayEPG_AddMenus(HMENU hMenuBar);
+void FFplayEPG_Layout(RECT * prcVideo);
+BOOL FFplayEPG_HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
+int FFplayEPG_StripHeight();
 
 #define ID_FFPLAY_AUDIO_BASE		41000	// + track index
 #define ID_FFPLAY_SUBTITLE_OFF		42000
@@ -72,7 +78,7 @@ static BYTE * FindESDescriptor(PESLIST pES, int nTag, int * pnLength)
 	return NULL;
 }
 
-static void LanguageName(const BYTE * pCode, char * szName)
+void LanguageName(const BYTE * pCode, char * szName)
 {
 	static const char * names[][2] = {
 		{"fin", "Finnish"}, {"swe", "Swedish"}, {"eng", "English"}, {"sme", "Northern Sami"},
@@ -214,6 +220,7 @@ static void CreateTrackMenus()
 		AppendMenu(hMenuSubtitles, MF_STRING | MF_GRAYED, 0, "(no DVB subtitles in this program)");
 	AppendMenu(hMenuBar, MF_POPUP, (UINT_PTR)hMenuAudio, "&Audio");
 	AppendMenu(hMenuBar, MF_POPUP, (UINT_PTR)hMenuSubtitles, "&Subtitles");
+	FFplayEPG_AddMenus(hMenuBar);
 	SetMenu(hWndHost, hMenuBar);
 	UpdateTrackMenus();
 }
@@ -305,15 +312,16 @@ static void ResizeFFplay()
 {
 	RECT rc;
 
+	// The EIT guide strip goes below the video and its schedule list to the right
+	FFplayEPG_Layout(&rc);
 	if (hWndFFplay != NULL && IsWindow(hWndFFplay))
-	{
-		GetClientRect(hWndHost, &rc);
-		MoveWindow(hWndFFplay, 0, 0, rc.right, rc.bottom, TRUE);
-	}
+		MoveWindow(hWndFFplay, rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top, TRUE);
 }
 
 static LRESULT CALLBACK FFplayHostWndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
+	if (FFplayEPG_HandleMessage(msg, wParam, lParam))
+		return 0;
 	switch (msg)
 	{
 	case WM_FFPLAY_ATTACH:
@@ -368,6 +376,7 @@ static LRESULT CALLBACK FFplayHostWndProc(HWND hWnd, UINT msg, WPARAM wParam, LP
 		DestroyWindow(hWnd);
 		break;
 	case WM_DESTROY:
+		FFplayEPG_Destroy();
 		hWndHost = NULL;
 		hWndFFplay = NULL;
 		break;
@@ -456,9 +465,13 @@ BOOL FFplayEmbedStart(HWND hWndOwner, UINT uStopCmd, const char * szURL, const c
 	if (hWndHost == NULL)
 		return FALSE;
 	BuildTrackLists();
+	FFplayEPG_Create(hWndHost, v->pat.pmt[v->nSelectedProgram].nProgramNumber);
 	CreateTrackMenus();
+	// Make room for the guide strip below the video
+	GetWindowRect(hWndHost, &rc);
+	SetWindowPos(hWndHost, NULL, 0, 0, rc.right - rc.left, rc.bottom - rc.top + FFplayEPG_StripHeight(), SWP_NOMOVE | SWP_NOZORDER);
 	ShowWindow(hWndHost, SW_SHOW);
-	GetClientRect(hWndHost, &rc);
+	FFplayEPG_Layout(&rc);
 
 	// Start on the first audio track and the first subtitle track (selected by PID), so
 	// the menus know where ffplay's track cycling starts from
@@ -472,7 +485,7 @@ BOOL FFplayEmbedStart(HWND hWndOwner, UINT uStopCmd, const char * szURL, const c
 	_snprintf(szCommand, sizeof(szCommand) - 1,
 			  "\"%s\" -hide_banner -loglevel error -noborder -left -32000 -top -32000 -x %d -y %d "
 			  "-window_title \"TSReader embedded ffplay\" %s %s\"%s\"",
-			  szExe, rc.right, rc.bottom, v->szFFplayOptions, szTracks, szURL);	// our track choice last so it wins over -ast/-sst in the options
+			  szExe, rc.right - rc.left, rc.bottom - rc.top, v->szFFplayOptions, szTracks, szURL);	// our track choice last so it wins over -ast/-sst in the options
 	szCommand[sizeof(szCommand) - 1] = '\0';
 
 	memset(&si, 0, sizeof(si));
