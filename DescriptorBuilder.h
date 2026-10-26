@@ -19,6 +19,8 @@
 								// a received descriptor still has bytes left at this point
 #define DF_LOOP			12		// start of a repeating entry (runs to the end of the descriptor)
 #define DF_LOOPEND		13
+#define DF_BCD			14		// binary-coded decimal, nBits / 4 digits, shown as the digits
+#define DF_LSTRING		15		// 8-bit length then that many bytes of text (length set on encoding)
 
 typedef struct
 {
@@ -49,7 +51,7 @@ typedef struct
 
 // A decoded descriptor: one value per field, loop fields once per entry
 #define DB_MAX_FIELDS		64
-#define DB_MAX_ENTRIES		32
+#define DB_MAX_ENTRIES		128		// a 255-byte descriptor of 2-byte entries has 127
 #define DB_MAX_LOOP_FIELDS	8		// fields inside one repeating entry
 
 typedef struct

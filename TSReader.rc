@@ -403,7 +403,7 @@ STYLE DS_MODALFRAME | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Descriptor Hex / Editor"
 FONT 8, "MS Sans Serif"
 BEGIN
-    LTEXT           "Descriptors kept from the PMT, SDT, NIT, BAT and TOT - select one to copy or edit it:",IDC_STATIC,7,7,330,8
+    LTEXT           "Descriptors kept from the PMT, SDT, NIT, BAT, TOT and EIT - select one to copy or edit it:",IDC_STATIC,7,7,330,8
     RTEXT           "",IDC_DH_COUNT,340,7,213,8
     CONTROL         "",IDC_DH_LIST,"SysListView32",LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | WS_BORDER | WS_TABSTOP,7,18,546,136
     LTEXT           "",IDC_DH_INFO,7,158,546,9

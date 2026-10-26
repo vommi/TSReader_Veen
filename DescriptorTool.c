@@ -172,6 +172,24 @@ static void CollectDescriptors()
 
 	// TOT
 	AddLoop("TOT", "Time offset", v->dvbtot.pDescriptors, v->dvbtot.nDescriptorsLength);
+
+	// EIT: descriptors kept with the first events of each service (short event text is
+	// decoded by the parser and not kept as a descriptor)
+	EnterCriticalSection(&v->csEIT);
+	for (i = 0; i < MAX_EIT_CHANNEL_DATA; i++)
+	{
+		PEITEVENT pEvent = v->pEvents[i];
+		int nEvent;
+
+		for (nEvent = 0; pEvent != NULL && nEvent < 3; nEvent++, pEvent = (PEITEVENT)pEvent->dwNextEvent)
+		{
+			_snprintf(szOwner, sizeof(szOwner) - 1, "Service %d / event %d %s", i, pEvent->nEventID, pEvent->szEventName);
+			szOwner[sizeof(szOwner) - 1] = '\0';
+			for (j = 0; j < MAX_EIT_EXTRA_DESCRIPTORS && pEvent->pExtraDescriptors[j] != NULL; j++)
+				AddItem("EIT", szOwner, pEvent->pExtraDescriptors[j], 2 + pEvent->pExtraDescriptors[j][1]);
+		}
+	}
+	LeaveCriticalSection(&v->csEIT);
 }
 
 // ---------------------------------------------------------------- hex text
