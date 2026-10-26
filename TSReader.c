@@ -16505,6 +16505,17 @@ void ShowEPGGrid(HWND hWnd)
 	ATOM rcreturn;
 	WNDCLASS  wc;
 
+	// Only one grid: a second one would share the grid state (v->epg, v->hWndEPGGrid)
+	// and leave the first one black, so bring the open one to the front instead
+	if (v->hWndEPGGrid != NULL && IsWindow(v->hWndEPGGrid))
+	{
+		if (IsIconic(v->hWndEPGGrid))
+			ShowWindow(v->hWndEPGGrid, SW_RESTORE);
+		SetForegroundWindow(v->hWndEPGGrid);
+		InvalidateRect(v->hWndEPGGrid, NULL, FALSE);
+		return;
+	}
+
 	// Setup the window classes
 	memset(&wc, 0, sizeof(wc));
 	wc.style =			CS_VREDRAW | CS_HREDRAW | CS_DBLCLKS;

@@ -260,6 +260,9 @@ static LRESULT CALLBACK SplashWndProc(HWND hWnd, UINT msg, WPARAM wp, LPARAM lp)
 
     case WM_DESTROY:
         if (g_hSplashPhoto) { DeleteObject(g_hSplashPhoto); g_hSplashPhoto = NULL; }
+        // Wake the local message loop so it sees the window is gone (when it is closed
+        // by a sent message nothing else may arrive to end GetMessage)
+        PostThreadMessage(GetCurrentThreadId(), WM_NULL, 0, 0);
         return 0;
     }
     return DefWindowProc(hWnd, msg, wp, lp);

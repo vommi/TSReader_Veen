@@ -744,7 +744,7 @@ void ParseDVBEITPacket(BYTE * pSectionPointer, int nPacketLength)
 								int k;
 								int o = lstrlen(szLongEventDescription);
 
-								for (k = 0; k < nTextLength && o < sizeof(szLongEventDescription) - 1; k++)
+								for (k = 0; k < nTextLength && o < 3500; k++)	// joined text stays within the 4 KB description buffers used by the exports
 								{
 									if (*pText < ' ' || *pText == 0x80 || *pText == 0x87)
 									{
