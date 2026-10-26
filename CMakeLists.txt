@@ -209,6 +209,7 @@ set(TSREADER_SOURCES
     FFplayEPG.c
     TeletextSubs.c
     DescriptorTool.c
+    DescriptorBuilder.c
     AutoRecord.c
     Forwarder.c
     GPSSignal.c

@@ -1068,6 +1068,13 @@
 #define IDC_DH_REFRESH                  1431
 #define IDC_DH_COUNT                    1432
 #define ID_VIEW_DESCRIPTORTOOL          50310
+#define IDC_DH_FIELDLIST                1433
+#define IDC_DH_VALUECOMBO               1434
+#define IDC_DH_VALUEEDIT                1435
+#define IDC_DH_FIELDNAME                1436
+#define IDC_DH_FIELDHINT                1437
+#define IDC_DH_ADDENTRY                 1438
+#define IDC_DH_REMOVEENTRY              1439
 #define ID_EPG_LANGUAGE_BASE            50292	// + 0 stream order, + 1..16 seen languages
 #define IDD_EPG_SET_TIME                1186
 #define IDC_EPG_TIME_DATE               1379
@@ -1080,7 +1087,7 @@
 #ifndef APSTUDIO_READONLY_SYMBOLS
 #define _APS_NEXT_RESOURCE_VALUE        1191
 #define _APS_NEXT_COMMAND_VALUE         50311
-#define _APS_NEXT_CONTROL_VALUE         1433
+#define _APS_NEXT_CONTROL_VALUE         1440
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

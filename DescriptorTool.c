@@ -3,15 +3,17 @@
 // Lists every descriptor TSReader keeps from the PMT (program and elementary streams),
 // SDT, NIT, BAT and TOT, and shows the selected one as hex in the format a device's
 // "add descriptor" field wants (e.g. continuous 561473776511...), ready to copy.
-// The descriptor can be edited, either as hex or - for teletext (0x56), subtitling
-// (0x59), ISO 639 language (0x0A) and stream identifier (0x52) - as one entry per line;
-// the other view and the length byte follow. "New" starts one from scratch.
+// The descriptor can be edited as hex or, when DescriptorBuilder.c has a definition for
+// it, field by field in a form (named values in a list, repeating entries added and
+// removed); the hex and the length byte follow. "New" builds any defined descriptor
+// from scratch.
 
 #include <windows.h>
 #include <commctrl.h>
 #include <stdio.h>
 #include "TSReader.h"
 #include "resource.h"
+#include "DescriptorBuilder.h"
 
 extern PVARIABLES v;
 extern char gszAppName[];
@@ -249,187 +251,17 @@ static int ParseHex(const char * szText, BYTE * pOut, int nMax)
 	return nCount;
 }
 
-// ---------------------------------------------------------------- field editors
+// ---------------------------------------------------------------- form editor
 
-static BOOL TagHasFields(int nTag)
-{
-	return nTag == 0x56 || nTag == 0x46 || nTag == 0x59 || nTag == 0x0a || nTag == 0x52;
-}
-
-static const char * FieldsHelp(int nTag)
-{
-	switch (nTag)
-	{
-	case 0x56:
-	case 0x46:
-		return "One page per line: language type page, e.g.  fin 2 699\r\n"
-			   "type: 1 initial page, 2 subtitles, 3 additional info, 4 schedule, 5 subtitles for the hard of hearing";
-	case 0x59:
-		return "One per line: language type composition ancillary, e.g.  fin 0x10 1 1\r\n"
-			   "type: 0x10 normal, 0x20 hard of hearing (0x11-0x14 / 0x21-0x24 with aspect ratio)";
-	case 0x0a:
-		return "One per line: language audio_type, e.g.  fin 0\r\n"
-			   "audio_type: 0 undefined, 1 clean effects, 2 hearing impaired, 3 visual impaired commentary";
-	case 0x52:
-		return "component_tag in hex, e.g.  0x03";
-	}
-	return "No field editor for this descriptor: edit the hex";
-}
-
-static void LanguageText(const BYTE * p, char * sz)
-{
-	int i;
-	for (i = 0; i < 3; i++)
-		sz[i] = (p[i] >= 0x20 && p[i] < 0x7f) ? (char)p[i] : '?';
-	sz[3] = '\0';
-}
-
-static void DescriptorToFields(const BYTE * pData, int nLength, char * szOut, int nSize)
-{
-	int nTag = pData[0], i, nOut = 0;
-	char szLang[4];
-
-	szOut[0] = '\0';
-	switch (nTag)
-	{
-	case 0x56:
-	case 0x46:
-		for (i = 2; i + 5 <= nLength && nOut + 32 < nSize; i += 5)
-		{
-			int nMagazine = pData[i + 3] & 7;
-			LanguageText(&pData[i], szLang);
-			nOut += wsprintf(&szOut[nOut], "%s %d %d%02X\r\n", szLang, pData[i + 3] >> 3, nMagazine ? nMagazine : 8, pData[i + 4]);
-		}
-		break;
-	case 0x59:
-		for (i = 2; i + 8 <= nLength && nOut + 40 < nSize; i += 8)
-		{
-			LanguageText(&pData[i], szLang);
-			nOut += wsprintf(&szOut[nOut], "%s 0x%02X %d %d\r\n", szLang, pData[i + 3],
-							 (pData[i + 4] << 8) | pData[i + 5], (pData[i + 6] << 8) | pData[i + 7]);
-		}
-		break;
-	case 0x0a:
-		for (i = 2; i + 4 <= nLength && nOut + 32 < nSize; i += 4)
-		{
-			LanguageText(&pData[i], szLang);
-			nOut += wsprintf(&szOut[nOut], "%s %d\r\n", szLang, pData[i + 3]);
-		}
-		break;
-	case 0x52:
-		if (nLength >= 3)
-			wsprintf(szOut, "0x%02X\r\n", pData[2]);
-		break;
-	}
-}
-
-static int ParseNumber(const char ** pp)
-{
-	const char * p = *pp;
-	int nValue = 0;
-
-	while (*p == ' ' || *p == '\t')
-		p++;
-	if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X'))
-	{
-		p += 2;
-		while (isxdigit((BYTE)*p))
-		{
-			nValue = nValue * 16 + (isdigit((BYTE)*p) ? *p - '0' : (toupper(*p) - 'A' + 10));
-			p++;
-		}
-	}
-	else
-	{
-		while (isdigit((BYTE)*p))
-			nValue = nValue * 10 + (*p++ - '0');
-	}
-	*pp = p;
-	return nValue;
-}
-
-// Builds the descriptor from the field lines; returns its length (0 if nothing usable)
-static int FieldsToDescriptor(int nTag, const char * szText, BYTE * pOut)
-{
-	int nLength = 2;
-	const char * p = szText;
-
-	pOut[0] = (BYTE)nTag;
-	while (*p && nLength < 250)
-	{
-		char szLine[128];
-		const char * q;
-		int n = 0;
-
-		while (*p && *p != '\r' && *p != '\n' && n < sizeof(szLine) - 1)
-			szLine[n++] = *p++;
-		szLine[n] = '\0';
-		while (*p == '\r' || *p == '\n')
-			p++;
-		q = szLine;
-		while (*q == ' ' || *q == '\t')
-			q++;
-		if (*q == '\0')
-			continue;
-
-		if (nTag == 0x52)
-		{
-			pOut[nLength++] = (BYTE)ParseNumber(&q);
-			break;
-		}
-		// Every other editor starts with a 3-letter language code
-		if (lstrlen(q) < 3)
-			continue;
-		pOut[nLength] = (BYTE)tolower(q[0]);
-		pOut[nLength + 1] = (BYTE)tolower(q[1]);
-		pOut[nLength + 2] = (BYTE)tolower(q[2]);
-		q += 3;
-		switch (nTag)
-		{
-		case 0x56:
-		case 0x46:
-			{
-				int nType = ParseNumber(&q);
-				int nPage;
-
-				while (*q == ' ' || *q == '\t')
-					q++;
-				// page as written on screen, e.g. 699 or 888: magazine digit + two hex digits
-				nPage = (int)strtoul(q, NULL, 16);
-				pOut[nLength + 3] = (BYTE)(((nType & 0x1f) << 3) | ((nPage >> 8) & 7));
-				pOut[nLength + 4] = (BYTE)nPage;
-				nLength += 5;
-			}
-			break;
-		case 0x59:
-			{
-				int nType = ParseNumber(&q);
-				int nComposition = ParseNumber(&q);
-				int nAncillary = ParseNumber(&q);
-
-				pOut[nLength + 3] = (BYTE)nType;
-				pOut[nLength + 4] = (BYTE)(nComposition >> 8);
-				pOut[nLength + 5] = (BYTE)nComposition;
-				pOut[nLength + 6] = (BYTE)(nAncillary >> 8);
-				pOut[nLength + 7] = (BYTE)nAncillary;
-				nLength += 8;
-			}
-			break;
-		case 0x0a:
-			pOut[nLength + 3] = (BYTE)ParseNumber(&q);
-			nLength += 4;
-			break;
-		}
-	}
-	pOut[1] = (BYTE)(nLength - 2);
-	return nLength;
-}
-
-// ---------------------------------------------------------------- dialog
+static DBINSTANCE instance;			// the current descriptor decoded by its definition
+static BOOL fDefined;				// instance is valid (a definition decoded it)
+#define DH_MAX_ROWS		(DB_MAX_FIELDS + DB_MAX_ENTRIES * DB_MAX_LOOP_FIELDS)
+static int nRowField[DH_MAX_ROWS], nRowEntry[DH_MAX_ROWS], nRows;
+static int nSelectedRow = -1;
 
 static void ShowInfo(HWND hDlg, const char * szNote)
 {
-	char szName[128], szInfo[256];
+	char szName[128], szInfo[300];
 
 	if (nCurrent < 2)
 	{
@@ -437,12 +269,13 @@ static void ShowInfo(HWND hDlg, const char * szNote)
 		return;
 	}
 	szName[0] = '\0';
-	DecodeDescriptorNames(szName, bCurrent[0]);
+	if (fDefined)
+		lstrcpyn(szName, instance.pDef->szName, sizeof(szName));
+	else
+		DecodeDescriptorNames(szName, bCurrent[0]);
 	wsprintf(szInfo, "Tag 0x%02X %s - %d bytes (length byte %d)%s%s", bCurrent[0], szName, nCurrent, bCurrent[1],
 			 szNote != NULL ? "  " : "", szNote != NULL ? szNote : "");
 	SetDlgItemText(hDlg, IDC_DH_INFO, szInfo);
-	SetDlgItemText(hDlg, IDC_DH_FIELDS_HELP, FieldsHelp(bCurrent[0]));
-	SendDlgItemMessage(hDlg, IDC_DH_FIELDS, EM_SETREADONLY, !TagHasFields(bCurrent[0]), 0);
 }
 
 static void WriteHexBox(HWND hDlg)
@@ -455,32 +288,227 @@ static void WriteHexBox(HWND hDlg)
 	fUpdating = FALSE;
 }
 
-static void WriteFieldsBox(HWND hDlg)
+// Label of a form row: field name, with the entry number inside a repeating entry
+static void RowLabel(int nRow, char * szOut, int nSize)
 {
-	char szFields[2048];
+	const DBFIELD * pField = &instance.pDef->pFields[nRowField[nRow]];
 
-	if (nCurrent >= 2 && TagHasFields(bCurrent[0]))
-		DescriptorToFields(bCurrent, nCurrent, szFields, sizeof(szFields));
+	if (DB_InLoop(instance.pDef, nRowField[nRow]))
+		_snprintf(szOut, nSize - 1, "#%d %s", nRowEntry[nRow] + 1, pField->szName);
 	else
-		szFields[0] = '\0';
+		_snprintf(szOut, nSize - 1, "%s", pField->szName);
+	szOut[nSize - 1] = '\0';
+}
+
+static BOOL RowShown(int nField, int nEntry)
+{
+	int nType = instance.pDef->pFields[nField].nType;
+
+	if (nType == DF_RESERVED || nType == DF_LOOP || nType == DF_LOOPEND)
+		return FALSE;
+	return DB_FieldPresent(&instance, nField, nEntry);
+}
+
+// Shows the editor controls for the selected row
+static void ShowFieldEditor(HWND hDlg)
+{
+	HWND hCombo = GetDlgItem(hDlg, IDC_DH_VALUECOMBO);
+	const DBFIELD * pField;
+	DBVALUE * pValue;
+	char szText[600], szLabel[128];
+	BOOL fCombo;
+
+	SendMessage(hCombo, CB_RESETCONTENT, 0, 0);
+	if (!fDefined || nSelectedRow < 0 || nSelectedRow >= nRows)
+	{
+		SetDlgItemText(hDlg, IDC_DH_FIELDNAME, fDefined ? "Select a field to change it" : "");
+		SetDlgItemText(hDlg, IDC_DH_FIELDHINT, "");
+		ShowWindow(hCombo, SW_HIDE);
+		EnableWindow(GetDlgItem(hDlg, IDC_DH_VALUEEDIT), FALSE);
+		fUpdating = TRUE;
+		SetDlgItemText(hDlg, IDC_DH_VALUEEDIT, "");
+		fUpdating = FALSE;
+		return;
+	}
+	pField = &instance.pDef->pFields[nRowField[nSelectedRow]];
+	pValue = DB_Value(&instance, nRowField[nSelectedRow], nRowEntry[nSelectedRow]);
+	RowLabel(nSelectedRow, szLabel, sizeof(szLabel));
+	SetDlgItemText(hDlg, IDC_DH_FIELDNAME, szLabel);
+
+	fCombo = pField->nType == DF_ENUM || pField->nType == DF_FLAG || pField->nType == DF_PRESENT;
+	if (fCombo)
+	{
+		int nSelect = -1, nItem;
+
+		if (pField->nType == DF_ENUM)
+		{
+			const DBENUM * pEnum;
+			for (pEnum = pField->pEnum; pEnum != NULL && pEnum->szName != NULL; pEnum++)
+			{
+				if (pField->nBits >= 8)
+					wsprintf(szText, "0x%02X  %s", pEnum->nValue, pEnum->szName);
+				else
+					wsprintf(szText, "%d  %s", pEnum->nValue, pEnum->szName);
+				nItem = (int)SendMessage(hCombo, CB_ADDSTRING, 0, (LPARAM)szText);
+				SendMessage(hCombo, CB_SETITEMDATA, nItem, pEnum->nValue);
+				if ((DWORD)pEnum->nValue == pValue->dwValue)
+					nSelect = nItem;
+			}
+		}
+		else
+		{
+			nItem = (int)SendMessage(hCombo, CB_ADDSTRING, 0, (LPARAM)"0  no");
+			SendMessage(hCombo, CB_SETITEMDATA, nItem, 0);
+			nItem = (int)SendMessage(hCombo, CB_ADDSTRING, 0, (LPARAM)"1  yes");
+			SendMessage(hCombo, CB_SETITEMDATA, nItem, 1);
+			nSelect = pValue->dwValue ? 1 : 0;
+		}
+		SendMessage(hCombo, CB_SETCURSEL, nSelect, 0);
+		ShowWindow(hCombo, SW_SHOW);
+	}
+	else
+		ShowWindow(hCombo, SW_HIDE);
+
+	EnableWindow(GetDlgItem(hDlg, IDC_DH_VALUEEDIT), pField->nType != DF_PRESENT && pField->nType != DF_FLAG);
+	DB_FormatValue(pField, pValue, szText, sizeof(szText));
 	fUpdating = TRUE;
-	SetDlgItemText(hDlg, IDC_DH_FIELDS, szFields);
+	SetDlgItemText(hDlg, IDC_DH_VALUEEDIT, szText);
 	fUpdating = FALSE;
+
+	if (pField->szHint != NULL)
+		lstrcpyn(szText, pField->szHint, sizeof(szText));
+	else if (pField->nType == DF_ENUM)
+		lstrcpy(szText, "Choose from the list, or type a value");
+	else
+		szText[0] = '\0';
+	if (pField->nType == DF_UINT || pField->nType == DF_HEX || pField->nType == DF_ENUM)
+		wsprintf(szText + lstrlen(szText), "%s(%d bits, decimal or 0x hex)", szText[0] ? "\r\n" : "", pField->nBits);
+	SetDlgItemText(hDlg, IDC_DH_FIELDHINT, szText);
+}
+
+// Rebuilds the form rows from the instance; keeps the selected field/entry selected
+static void FillFieldList(HWND hDlg)
+{
+	HWND hList = GetDlgItem(hDlg, IDC_DH_FIELDLIST);
+	int nKeepField = -1, nKeepEntry = -1, nNewSelection = -1;
+	int i, e, nLoop;
+
+	if (nSelectedRow >= 0 && nSelectedRow < nRows)
+	{
+		nKeepField = nRowField[nSelectedRow];
+		nKeepEntry = nRowEntry[nSelectedRow];
+	}
+	nRows = 0;
+	nSelectedRow = -1;
+	SendMessage(hList, WM_SETREDRAW, FALSE, 0);
+	ListView_DeleteAllItems(hList);
+	if (!fDefined)
+	{
+		LVITEM lvi;
+
+		memset(&lvi, 0, sizeof(lvi));
+		lvi.mask = LVIF_TEXT;
+		lvi.pszText = nCurrent >= 2 && DB_FindDefinition(bCurrent, nCurrent) != NULL
+					? "(does not match its definition - edit the hex)"
+					: "(no field definition for this descriptor - edit the hex)";
+		if (nCurrent >= 2)
+			ListView_InsertItem(hList, &lvi);
+	}
+	else
+	{
+		nLoop = DB_LoopStart(instance.pDef);
+		for (i = 0; i < instance.pDef->nFields && i != nLoop; i++)
+		{
+			if (RowShown(i, 0) && nRows < DH_MAX_ROWS)
+			{
+				nRowField[nRows] = i;
+				nRowEntry[nRows++] = 0;
+			}
+		}
+		if (nLoop >= 0)
+			for (e = 0; e < instance.nEntries; e++)
+				for (i = nLoop + 1; instance.pDef->pFields[i].nType != DF_LOOPEND; i++)
+					if (RowShown(i, e) && nRows < DH_MAX_ROWS)
+					{
+						nRowField[nRows] = i;
+						nRowEntry[nRows++] = e;
+					}
+		for (i = 0; i < nRows; i++)
+		{
+			LVITEM lvi;
+			char szText[600];
+			const DBFIELD * pField = &instance.pDef->pFields[nRowField[i]];
+			DBVALUE * pValue = DB_Value(&instance, nRowField[i], nRowEntry[i]);
+
+			RowLabel(i, szText, sizeof(szText));
+			memset(&lvi, 0, sizeof(lvi));
+			lvi.mask = LVIF_TEXT;
+			lvi.iItem = i;
+			lvi.pszText = szText;
+			ListView_InsertItem(hList, &lvi);
+			DB_FormatValue(pField, pValue, szText, sizeof(szText));
+			ListView_SetItemText(hList, i, 1, szText);
+			DB_FormatMeaning(pField, pValue, szText, sizeof(szText));
+			ListView_SetItemText(hList, i, 2, szText);
+			if (nRowField[i] == nKeepField && nRowEntry[i] == nKeepEntry)
+				nNewSelection = i;
+		}
+	}
+	SendMessage(hList, WM_SETREDRAW, TRUE, 0);
+	if (nNewSelection >= 0)
+	{
+		fUpdating = TRUE;
+		ListView_SetItemState(hList, nNewSelection, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+		ListView_EnsureVisible(hList, nNewSelection, FALSE);
+		fUpdating = FALSE;
+		nSelectedRow = nNewSelection;
+	}
+	EnableWindow(GetDlgItem(hDlg, IDC_DH_ADDENTRY), fDefined && DB_LoopStart(instance.pDef) >= 0);
+	EnableWindow(GetDlgItem(hDlg, IDC_DH_REMOVEENTRY), fDefined && nSelectedRow >= 0 && DB_InLoop(instance.pDef, nRowField[nSelectedRow]));
+	ShowFieldEditor(hDlg);
+}
+
+// Decodes bCurrent with its definition (if there is one)
+static void DecodeCurrent()
+{
+	const DBDEF * pDef = DB_FindDefinition(bCurrent, nCurrent);
+
+	fDefined = pDef != NULL && DB_Decode(pDef, bCurrent, nCurrent, &instance);
+}
+
+// The form changed: encode it into bCurrent and update the hex and the form
+static void InstanceChanged(HWND hDlg)
+{
+	BYTE bData[257];
+	int nLength = DB_Encode(&instance, bData);
+
+	if (nLength == 0)
+	{
+		ShowInfo(hDlg, "- too long for one descriptor (255 bytes)");
+		return;
+	}
+	memcpy(bCurrent, bData, nLength);
+	nCurrent = nLength;
+	WriteHexBox(hDlg);
+	FillFieldList(hDlg);
+	ShowInfo(hDlg, NULL);
 }
 
 static void LoadCurrent(HWND hDlg, const BYTE * pData, int nLength)
 {
 	memcpy(bCurrent, pData, nLength);
 	nCurrent = nLength;
+	DecodeCurrent();
+	nSelectedRow = -1;
 	WriteHexBox(hDlg);
-	WriteFieldsBox(hDlg);
+	FillFieldList(hDlg);
 	ShowInfo(hDlg, NULL);
 }
 
 static void FillList(HWND hDlg)
 {
 	HWND hList = GetDlgItem(hDlg, IDC_DH_LIST);
-	int i;
+	int i, nDecoded = 0, nDiffer = 0, nNotDecoded = 0;
 
 	CollectDescriptors();
 	SendMessage(hList, WM_SETREDRAW, FALSE, 0);
@@ -490,6 +518,20 @@ static void FillList(HWND hDlg)
 		LVITEM lvi;
 		char szTemp[600], szName[128];
 		int nSaveFormat = nFormat;
+		const DBDEF * pDef = DB_FindDefinition(pItems[i].bData, pItems[i].nLength);
+
+		// Check the builder decodes and re-encodes it to the same bytes
+		if (pDef != NULL && DB_Decode(pDef, pItems[i].bData, pItems[i].nLength, &instance))
+		{
+			BYTE bData[257];
+			int nLength = DB_Encode(&instance, bData);
+
+			nDecoded++;
+			if (nLength != pItems[i].nLength || memcmp(bData, pItems[i].bData, nLength) != 0)
+				nDiffer++;
+		}
+		else if (pDef != NULL)
+			nNotDecoded++;
 
 		memset(&lvi, 0, sizeof(lvi));
 		lvi.mask = LVIF_TEXT | LVIF_PARAM;
@@ -512,10 +554,15 @@ static void FillList(HWND hDlg)
 	}
 	SendMessage(hList, WM_SETREDRAW, TRUE, 0);
 	{
-		char szCount[64];
-		wsprintf(szCount, "%d descriptors", nItems);
+		char szCount[160];
+		wsprintf(szCount, "%d descriptors, %d with field editor%s%s", nItems, nDecoded,
+				 nDiffer ? ", some re-encode differently!" : "",
+				 nNotDecoded ? ", some do not match their definition" : "");
 		SetDlgItemText(hDlg, IDC_DH_COUNT, szCount);
 	}
+	// FillList used instance for the check: reload the current descriptor
+	if (nCurrent >= 2)
+		DecodeCurrent();
 }
 
 static void CopyHex(HWND hDlg)
@@ -538,6 +585,76 @@ static void CopyHex(HWND hDlg)
 	ShowInfo(hDlg, "- copied");
 }
 
+// Value typed or chosen for the selected field
+static void ApplyValue(HWND hDlg, const char * szText)
+{
+	const DBFIELD * pField;
+	DBVALUE value;
+
+	if (!fDefined || nSelectedRow < 0 || nSelectedRow >= nRows)
+		return;
+	pField = &instance.pDef->pFields[nRowField[nSelectedRow]];
+	value = *DB_Value(&instance, nRowField[nSelectedRow], nRowEntry[nSelectedRow]);
+	if (!DB_ParseValue(pField, szText, &value))
+	{
+		ShowInfo(hDlg, "- not a valid value for this field");
+		return;
+	}
+	*DB_Value(&instance, nRowField[nSelectedRow], nRowEntry[nSelectedRow]) = value;
+	{
+		// The edit box keeps what is typed; only the hex and the form follow
+		char szKeep[600];
+		GetDlgItemText(hDlg, IDC_DH_VALUEEDIT, szKeep, sizeof(szKeep));
+		InstanceChanged(hDlg);
+		fUpdating = TRUE;
+		SetDlgItemText(hDlg, IDC_DH_VALUEEDIT, szKeep);
+		SendDlgItemMessage(hDlg, IDC_DH_VALUEEDIT, EM_SETSEL, lstrlen(szKeep), lstrlen(szKeep));
+		fUpdating = FALSE;
+	}
+}
+
+static void AddEntry(HWND hDlg)
+{
+	int nLoop = DB_LoopStart(instance.pDef), nAfter, e;
+
+	if (!fDefined || nLoop < 0 || instance.nEntries >= DB_MAX_ENTRIES)
+		return;
+	// New entry after the selected one, as a copy of it (or of the defaults)
+	nAfter = instance.nEntries - 1;
+	if (nSelectedRow >= 0 && DB_InLoop(instance.pDef, nRowField[nSelectedRow]))
+		nAfter = nRowEntry[nSelectedRow];
+	for (e = instance.nEntries; e > nAfter + 1; e--)
+		memcpy(instance.loop[e], instance.loop[e - 1], sizeof(instance.loop[e]));
+	if (nAfter >= 0)
+		memcpy(instance.loop[nAfter + 1], instance.loop[nAfter], sizeof(instance.loop[0]));
+	else
+	{
+		DBINSTANCE * pDefaults = LocalAlloc(LPTR, sizeof(DBINSTANCE));
+		if (pDefaults == NULL)
+			return;
+		DB_New(instance.pDef, pDefaults);
+		memcpy(instance.loop[0], pDefaults->loop[0], sizeof(instance.loop[0]));
+		LocalFree(pDefaults);
+	}
+	instance.nEntries++;
+	nSelectedRow = -1;
+	InstanceChanged(hDlg);
+}
+
+static void RemoveEntry(HWND hDlg)
+{
+	int nEntry, e;
+
+	if (!fDefined || nSelectedRow < 0 || !DB_InLoop(instance.pDef, nRowField[nSelectedRow]))
+		return;
+	nEntry = nRowEntry[nSelectedRow];
+	for (e = nEntry; e < instance.nEntries - 1; e++)
+		memcpy(instance.loop[e], instance.loop[e + 1], sizeof(instance.loop[e]));
+	instance.nEntries--;
+	nSelectedRow = -1;
+	InstanceChanged(hDlg);
+}
+
 BOOL CALLBACK DescriptorToolDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam)
 {
 	switch (uMsg)
@@ -545,10 +662,12 @@ BOOL CALLBACK DescriptorToolDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM 
 	case WM_INITDIALOG:
 		{
 			HWND hList = GetDlgItem(hDlg, IDC_DH_LIST);
+			HWND hFields = GetDlgItem(hDlg, IDC_DH_FIELDLIST);
 			static const char * szColumns[] = {"Table", "Owner", "Tag", "Name", "Bytes", "Hex"};
 			static const int nWidths[] = {40, 250, 40, 130, 40, 330};
+			static const char * szFieldColumns[] = {"Field", "Value", "Meaning"};
+			static const int nFieldWidths[] = {200, 90, 220};
 			static const char * szFormats[] = {"Continuous  (561473...)", "Spaced  (56 14 73 ...)", "0x prefix  (0x561473...)", "C array  (0x56, 0x14, ...)"};
-			static const char * szNewTags[] = {"Teletext (0x56)", "Subtitling (0x59)", "ISO 639 language (0x0A)", "Stream identifier (0x52)"};
 			LVCOLUMN lvc;
 			int i;
 			HFONT hFixed = CreateFont(-12, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, ANSI_CHARSET, 0, 0, 0, FIXED_PITCH, "Consolas");
@@ -561,6 +680,7 @@ BOOL CALLBACK DescriptorToolDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM 
 				return TRUE;
 			}
 			ListView_SetExtendedListViewStyle(hList, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
+			ListView_SetExtendedListViewStyle(hFields, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
 			memset(&lvc, 0, sizeof(lvc));
 			lvc.mask = LVCF_TEXT | LVCF_WIDTH;
 			for (i = 0; i < 6; i++)
@@ -569,28 +689,53 @@ BOOL CALLBACK DescriptorToolDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM 
 				lvc.cx = nWidths[i];
 				ListView_InsertColumn(hList, i, &lvc);
 			}
+			for (i = 0; i < 3; i++)
+			{
+				lvc.pszText = (char *)szFieldColumns[i];
+				lvc.cx = nFieldWidths[i];
+				ListView_InsertColumn(hFields, i, &lvc);
+			}
 			for (i = 0; i < 4; i++)
 				SendDlgItemMessage(hDlg, IDC_DH_FORMAT, CB_ADDSTRING, 0, (LPARAM)szFormats[i]);
 			SendDlgItemMessage(hDlg, IDC_DH_FORMAT, CB_SETCURSEL, nFormat, 0);
-			for (i = 0; i < 4; i++)
-				SendDlgItemMessage(hDlg, IDC_DH_NEWTAG, CB_ADDSTRING, 0, (LPARAM)szNewTags[i]);
+			for (i = 0; i < DB_DefinitionCount(); i++)
+				SendDlgItemMessage(hDlg, IDC_DH_NEWTAG, CB_ADDSTRING, 0, (LPARAM)DB_Definition(i)->szName);
 			SendDlgItemMessage(hDlg, IDC_DH_NEWTAG, CB_SETCURSEL, 0, 0);
 			SendDlgItemMessage(hDlg, IDC_DH_HEX, WM_SETFONT, (WPARAM)hFixed, FALSE);
-			SendDlgItemMessage(hDlg, IDC_DH_FIELDS, WM_SETFONT, (WPARAM)hFixed, FALSE);
 			SetWindowLongPtr(hDlg, DWLP_USER, (LONG_PTR)hFixed);
 			nCurrent = 0;
+			fDefined = FALSE;
+			nSelectedRow = -1;
 			FillList(hDlg);
-			ShowInfo(hDlg, "Select a descriptor, or press New");
+			FillFieldList(hDlg);
+			ShowInfo(hDlg, "Select a descriptor, or choose one under New descriptor and press New");
 		}
 		return TRUE;
 
 	case WM_NOTIFY:
-		if (((NMHDR *)lParam)->idFrom == IDC_DH_LIST && ((NMHDR *)lParam)->code == LVN_ITEMCHANGED)
 		{
-			NMLISTVIEW * pnm = (NMLISTVIEW *)lParam;
+			NMHDR * pHdr = (NMHDR *)lParam;
 
-			if ((pnm->uNewState & LVIS_SELECTED) && !(pnm->uOldState & LVIS_SELECTED) && pnm->lParam >= 0 && pnm->lParam < nItems)
-				LoadCurrent(hDlg, pItems[pnm->lParam].bData, pItems[pnm->lParam].nLength);
+			if (pHdr->code != LVN_ITEMCHANGED)
+				break;
+			if (pHdr->idFrom == IDC_DH_LIST)
+			{
+				NMLISTVIEW * pnm = (NMLISTVIEW *)lParam;
+
+				if ((pnm->uNewState & LVIS_SELECTED) && !(pnm->uOldState & LVIS_SELECTED) && pnm->lParam >= 0 && pnm->lParam < nItems)
+					LoadCurrent(hDlg, pItems[pnm->lParam].bData, pItems[pnm->lParam].nLength);
+			}
+			else if (pHdr->idFrom == IDC_DH_FIELDLIST && !fUpdating)
+			{
+				NMLISTVIEW * pnm = (NMLISTVIEW *)lParam;
+
+				if ((pnm->uNewState & LVIS_SELECTED) && !(pnm->uOldState & LVIS_SELECTED) && fDefined && pnm->iItem < nRows)
+				{
+					nSelectedRow = pnm->iItem;
+					EnableWindow(GetDlgItem(hDlg, IDC_DH_REMOVEENTRY), DB_InLoop(instance.pDef, nRowField[nSelectedRow]));
+					ShowFieldEditor(hDlg);
+				}
+			}
 		}
 		break;
 
@@ -615,26 +760,46 @@ BOOL CALLBACK DescriptorToolDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM 
 					bData[1] = (BYTE)(nLength - 2);
 					memcpy(bCurrent, bData, nLength);
 					nCurrent = nLength;
-					WriteFieldsBox(hDlg);
+					DecodeCurrent();
+					FillFieldList(hDlg);
 					ShowInfo(hDlg, fFixed ? "- length byte set to match" : NULL);
 				}
 				else
 				{
 					nCurrent = 0;
+					fDefined = FALSE;
+					FillFieldList(hDlg);
 					ShowInfo(hDlg, "A descriptor needs at least 2 bytes (tag and length)");
 				}
 			}
 			break;
-		case IDC_DH_FIELDS:
-			if (HIWORD(wParam) == EN_CHANGE && !fUpdating && nCurrent >= 2 && TagHasFields(bCurrent[0]))
+		case IDC_DH_VALUEEDIT:
+			if (HIWORD(wParam) == EN_CHANGE && !fUpdating)
 			{
-				char szFields[2048];
+				char szValue[600];
 
-				GetDlgItemText(hDlg, IDC_DH_FIELDS, szFields, sizeof(szFields));
-				nCurrent = FieldsToDescriptor(bCurrent[0], szFields, bCurrent);
-				WriteHexBox(hDlg);
-				ShowInfo(hDlg, NULL);
+				GetDlgItemText(hDlg, IDC_DH_VALUEEDIT, szValue, sizeof(szValue));
+				ApplyValue(hDlg, szValue);
 			}
+			break;
+		case IDC_DH_VALUECOMBO:
+			if (HIWORD(wParam) == CBN_SELCHANGE && fDefined && nSelectedRow >= 0)
+			{
+				int nItem = (int)SendDlgItemMessage(hDlg, IDC_DH_VALUECOMBO, CB_GETCURSEL, 0, 0);
+
+				if (nItem >= 0)
+				{
+					DWORD dwValue = (DWORD)SendDlgItemMessage(hDlg, IDC_DH_VALUECOMBO, CB_GETITEMDATA, nItem, 0);
+					DB_Value(&instance, nRowField[nSelectedRow], nRowEntry[nSelectedRow])->dwValue = dwValue;
+					InstanceChanged(hDlg);
+				}
+			}
+			break;
+		case IDC_DH_ADDENTRY:
+			AddEntry(hDlg);
+			break;
+		case IDC_DH_REMOVEENTRY:
+			RemoveEntry(hDlg);
 			break;
 		case IDC_DH_FORMAT:
 			if (HIWORD(wParam) == CBN_SELCHANGE)
@@ -646,17 +811,15 @@ BOOL CALLBACK DescriptorToolDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM 
 			break;
 		case IDC_DH_NEW:
 			{
-				static const BYTE bTags[] = {0x56, 0x59, 0x0a, 0x52};
-				static const char * szTemplates[] = {"fin 2 699\r\n", "fin 0x10 1 1\r\n", "fin 0\r\n", "0x01\r\n"};
-				int nChoice = (int)SendDlgItemMessage(hDlg, IDC_DH_NEWTAG, CB_GETCURSEL, 0, 0);
+				const DBDEF * pDef = DB_Definition((int)SendDlgItemMessage(hDlg, IDC_DH_NEWTAG, CB_GETCURSEL, 0, 0));
 
-				if (nChoice < 0 || nChoice > 3)
-					nChoice = 0;
-				nCurrent = FieldsToDescriptor(bTags[nChoice], szTemplates[nChoice], bCurrent);
-				WriteHexBox(hDlg);
-				WriteFieldsBox(hDlg);
-				ShowInfo(hDlg, "- new: edit the fields");
-				SetFocus(GetDlgItem(hDlg, IDC_DH_FIELDS));
+				if (pDef == NULL)
+					break;
+				DB_New(pDef, &instance);
+				fDefined = TRUE;
+				nSelectedRow = -1;
+				InstanceChanged(hDlg);
+				ShowInfo(hDlg, "- new: select a field to change it");
 			}
 			break;
 		case IDC_DH_COPY:
