@@ -16490,12 +16490,23 @@ BOOL CALLBACK EPGGridSettingsDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM
 	return FALSE;
 }
 
+// Moves a saved window position onto the main screen when its title bar would not be on
+// any monitor (e.g. saved on a monitor that is no longer connected, or at negative
+// coordinates left of / above the screens)
 void ValidateWindowXY(int * nX, int * nY)
 {
-	if (*nX > GetSystemMetrics(SM_CXVIRTUALSCREEN))
-		*nX = 0;
-	if (*nY > GetSystemMetrics(SM_CYVIRTUALSCREEN))
-		*nY = 0;
+	POINT ptTitle;
+	RECT rcWork;
+
+	if (*nX == CW_USEDEFAULT || *nY == CW_USEDEFAULT)
+		return;
+	ptTitle.x = *nX + 60;
+	ptTitle.y = *nY + 10;
+	if (MonitorFromPoint(ptTitle, MONITOR_DEFAULTTONULL) != NULL)
+		return;
+	SystemParametersInfo(SPI_GETWORKAREA, 0, &rcWork, 0);
+	*nX = rcWork.left + 60;
+	*nY = rcWork.top + 60;
 }
 
 void ShowEPGGrid(HWND hWnd)
