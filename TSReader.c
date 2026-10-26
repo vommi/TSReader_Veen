@@ -85,6 +85,13 @@ void XMLTVExport(HWND hDlg, HANDLE hXMLFile);
 // Stuff in EITServer.c
 BOOL StartEITServer();
 BOOL TerminateEITServer();
+// TeletextSubs.c: teletext subtitle pages as DVB subtitles for the embedded ffplay
+void TtxSubs_Setup();
+BOOL TtxSubs_IsSourcePID(int nPID);
+BOOL TtxSubs_HasSubtitlePages(int nPMTIndex, int nESIndex);
+int TtxSubs_GetPMTEntries(int nPID, BYTE * pBuffer);
+void TtxSubs_InputPacket(const BYTE * pPacket);
+int TtxSubs_Drain(BYTE * pDest, int nSpace);
 int GetEITConnectionCount();
 
 // Stuff in CCDecoder.c
@@ -2873,14 +2880,16 @@ Record_BuildESListDefault:
 			}
 			if (v->fRecordDialogStreamOnly == TRUE && v->fFFplayEmbedded == TRUE)
 			{
-				// Embedded ffplay: send every audio track and every DVB subtitle track; the
-				// video window's Audio and Subtitles menus choose between them
+				// Embedded ffplay: send every audio track and every DVB and teletext subtitle
+				// track (teletext pages are converted to DVB subtitles); the video window's
+				// Audio and Subtitles menus choose between them
 				for (i = 0; i < v->nAudioStreams; i++)
 					SendDlgItemMessage(hDlg, IDC_RECORD_AUDIO_ES, LB_SETSEL, TRUE, i);
 				for (i = 0; i < v->nOtherStreams; i++)
 				{
 					int nES = SendDlgItemMessage(hDlg, IDC_RECORD_OTHER_ES, LB_GETITEMDATA, i, 0);
-					SendDlgItemMessage(hDlg, IDC_RECORD_OTHER_ES, LB_SETSEL, IsSubtitleStream(v->nSelectedProgram, nES), i);
+					SendDlgItemMessage(hDlg, IDC_RECORD_OTHER_ES, LB_SETSEL,
+									   IsSubtitleStream(v->nSelectedProgram, nES) || TtxSubs_HasSubtitlePages(v->nSelectedProgram, nES), i);
 				}
 				PostMessage(hDlg, WM_COMMAND, IDOK, 0);
 				break;
@@ -3506,6 +3515,9 @@ void SetupPriorToProgramRecording()
 
 		v->nRecordPMTPID = v->pat.pmt[v->nSelectedProgram].nPMTPID;
 
+		// Embedded ffplay: teletext subtitle pages go out as DVB subtitle streams
+		TtxSubs_Setup();
+
 		if (ATSCPIDs())
 			nPMTPID = 0x0030;
 		else
@@ -3612,11 +3624,13 @@ void SetupPriorToProgramRecording()
 		// Bump up the PMT section length because of the other entries
 		for (i = 0; i < MAX_OTHER_STREAMS; i++)
 		{
-			if (v->nRecordOtherPID[i] != 0x1fff)
+			if (v->nRecordOtherPID[i] != 0x1fff && TtxSubs_IsSourcePID(v->nRecordOtherPID[i]))
+				nSectionLength += TtxSubs_GetPMTEntries(v->nRecordOtherPID[i], NULL);
+			else if (v->nRecordOtherPID[i] != 0x1fff)
 			{
 				nSectionLength += 5;
 				nSectionLength += v->pat.pmt[v->nSelectedProgram].es[v->nRecordOtherESIndex[i]].nDescriptorsLength;
-			}			
+			}
 		}
 
 		// Bump by CA descriptors at the ES level if we're including CA data
@@ -3804,7 +3818,15 @@ void SetupPriorToProgramRecording()
 
 			for (i = 0; i < MAX_OTHER_STREAMS; i++)
 			{
-				if (v->nRecordOtherPID[i] != 0x1fff)
+				if (v->nRecordOtherPID[i] != 0x1fff && TtxSubs_IsSourcePID(v->nRecordOtherPID[i]))
+				{
+					// The teletext PID is replaced by one DVB subtitle stream per subtitle page
+					BYTE bEntries[256];
+					int j, nEntries = TtxSubs_GetPMTEntries(v->nRecordOtherPID[i], bEntries);
+					for (j = 0; j < nEntries; j++)
+						set_bits(BM_USER_THREAD, bEntries[j], 8);
+				}
+				else if (v->nRecordOtherPID[i] != 0x1fff)
 				{
 					set_bits(BM_USER_THREAD, v->pat.pmt[v->nSelectedProgram].es[v->nRecordOtherESIndex[i]].nStreamType, 8);		// stream type
 					set_bits(BM_USER_THREAD, 0x7, 3);		// reserved
@@ -5320,7 +5342,13 @@ void BufferRecordChannelData(int nPID)
 				break;
 			if (nPID == v->nRecordOtherPID[i])
 			{
-				if (tv->fRecordBufferActive[0])
+				if (TtxSubs_IsSourcePID(nPID))
+				{
+					// Converted to DVB subtitles for the embedded player (not sent as teletext)
+					if (tv->nPacketLength == 188)
+						TtxSubs_InputPacket(&tv->pIncomingBuffer[tv->nBufferOffset]);
+				}
+				else if (tv->fRecordBufferActive[0])
 				{
 					memcpy(&tv->pOutputRecordPackets[0][tv->dwRecordSize[0]], &tv->pIncomingBuffer[tv->nBufferOffset], tv->nPacketLength);
 					tv->dwRecordSize[0] += tv->nPacketLength;
@@ -5328,6 +5356,12 @@ void BufferRecordChannelData(int nPID)
 			}
 		}
 	}
+
+	// DVB subtitle packets made from teletext; the record buffer has room for twice an
+	// input buffer (see where it is allocated)
+	if (tv->fRecordBufferActive[0] && tv->fGotAdaptation)
+		tv->dwRecordSize[0] += TtxSubs_Drain(&tv->pOutputRecordPackets[0][tv->dwRecordSize[0]],
+											 2 * TS_BUFFER_SIZE - tv->dwRecordSize[0] - 4 * 188);
 
 #ifndef LITE
 	if (v->fIncludeCAData)
@@ -6598,7 +6632,7 @@ DWORD WINAPI ParseIncomingTSDataThread(LPVOID lpv)
 
 	for (i  = 0; i < tv->nActualMaxRecordBuffers; i++)
 	{
-		tv->pOutputRecordPackets[i] = LocalAlloc(LPTR, TS_BUFFER_SIZE);
+		tv->pOutputRecordPackets[i] = LocalAlloc(LPTR, 2 * TS_BUFFER_SIZE);	// room for the added PAT/PMT and teletext-made subtitle packets
 		tv->dwRecordSize[i] = 0;
 		tv->fRecordBufferActive[i] = FALSE;
 	}

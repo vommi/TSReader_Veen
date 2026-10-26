@@ -35,6 +35,9 @@ static UINT uStopCommand;				// WM_COMMAND sent to hWndNotify to stop the stream
 
 void FFplayEmbedStop();
 BOOL IsSubtitleStream(int nPMTProgramIndex, int nESIndex);
+void LanguageName(const BYTE * pCode, char * szName);
+BOOL TtxSubs_IsSourcePID(int nPID);
+int TtxSubs_GetTracks(int nSourcePID, int * pnPIDs, char szLanguages[][4], int * pnPageNumbers, BOOL * pfHardOfHearing, int nMax);
 void FFplayEPG_Create(HWND hWnd, int nServiceID);
 void FFplayEPG_Destroy();
 void FFplayEPG_AddMenus(HMENU hMenuBar);
@@ -166,9 +169,29 @@ static void BuildTrackLists()
 		BYTE * pDesc;
 		int nLength;
 
+		pES = &pPMT->es[v->nRecordOtherESIndex[i]];
+		if (TtxSubs_IsSourcePID(pES->nESPID))
+		{
+			// Teletext: one DVB subtitle track per subtitle page (see TeletextSubs.c)
+			int nPIDs[8], nPageNumbers[8], j, nTracks;
+			char szLanguages[8][4];
+			BOOL fHardOfHearing[8];
+
+			nTracks = TtxSubs_GetTracks(pES->nESPID, nPIDs, szLanguages, nPageNumbers, fHardOfHearing, 8);
+			for (j = 0; j < nTracks && nSubtitleTracks < MAX_OTHER_STREAMS; j++)
+			{
+				char szLanguage[64];
+
+				pTrack = &subtitleTracks[nSubtitleTracks++];
+				pTrack->nPID = nPIDs[j];
+				LanguageName((const BYTE *)szLanguages[j], szLanguage);
+				wsprintf(pTrack->szLabel, "%s - teletext %03X%s", szLanguage, nPageNumbers[j],
+						 fHardOfHearing[j] ? " - hard of hearing" : "");
+			}
+			continue;
+		}
 		if (!IsSubtitleStream(v->nSelectedProgram, v->nRecordOtherESIndex[i]))
 			continue;
-		pES = &pPMT->es[v->nRecordOtherESIndex[i]];
 		pTrack = &subtitleTracks[nSubtitleTracks++];
 		pTrack->nPID = pES->nESPID;
 		pDesc = FindESDescriptor(pES, 0x59, &nLength);		// subtitling descriptor
@@ -184,6 +207,22 @@ static void BuildTrackLists()
 	}
 	nCurrentAudio = 0;
 	nCurrentSubtitle = nSubtitleTracks ? 0 : nSubtitleTracks;	// first track on, if any
+	// Start on the preferred EIT language's subtitles when there are several (teletext
+	// usually lists Swedish first)
+	if (lstrlen(v->szEITLanguages) >= 3)
+	{
+		char szPreferred[64];
+
+		LanguageName((const BYTE *)v->szEITLanguages, szPreferred);
+		for (i = 0; i < nSubtitleTracks; i++)
+		{
+			if (strncmp(subtitleTracks[i].szLabel, szPreferred, lstrlen(szPreferred)) == 0)
+			{
+				nCurrentSubtitle = i;
+				break;
+			}
+		}
+	}
 }
 
 static void UpdateTrackMenus()

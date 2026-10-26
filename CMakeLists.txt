@@ -207,6 +207,7 @@ set(TSREADER_SOURCES
     EPGGrid.c
     FFplayEmbed.c
     FFplayEPG.c
+    TeletextSubs.c
     AutoRecord.c
     Forwarder.c
     GPSSignal.c
