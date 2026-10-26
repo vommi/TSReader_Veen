@@ -1055,6 +1055,19 @@
 #define IDC_AR_STOP                     1421
 #define ID_RECORD_AUTORECORDER          50290
 #define ID_RECORD_AUTORECORDER_RUN      50291
+#define IDD_DESCRIPTOR_TOOL             1190
+#define IDC_DH_LIST                     1422
+#define IDC_DH_FORMAT                   1423
+#define IDC_DH_HEX                      1424
+#define IDC_DH_FIELDS                   1425
+#define IDC_DH_FIELDS_HELP              1426
+#define IDC_DH_INFO                     1427
+#define IDC_DH_COPY                     1428
+#define IDC_DH_NEW                      1429
+#define IDC_DH_NEWTAG                   1430
+#define IDC_DH_REFRESH                  1431
+#define IDC_DH_COUNT                    1432
+#define ID_VIEW_DESCRIPTORTOOL          50310
 #define ID_EPG_LANGUAGE_BASE            50292	// + 0 stream order, + 1..16 seen languages
 #define IDD_EPG_SET_TIME                1186
 #define IDC_EPG_TIME_DATE               1379
@@ -1065,9 +1078,9 @@
 // 
 #ifdef APSTUDIO_INVOKED
 #ifndef APSTUDIO_READONLY_SYMBOLS
-#define _APS_NEXT_RESOURCE_VALUE        1190
-#define _APS_NEXT_COMMAND_VALUE         50310
-#define _APS_NEXT_CONTROL_VALUE         1422
+#define _APS_NEXT_RESOURCE_VALUE        1191
+#define _APS_NEXT_COMMAND_VALUE         50311
+#define _APS_NEXT_CONTROL_VALUE         1433
 #define _APS_NEXT_SYMED_VALUE           101
 #endif
 #endif

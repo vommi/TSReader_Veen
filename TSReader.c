@@ -80,11 +80,6 @@ void SIParserExport(HWND hDlg);
 void StartXMLExport(HWND hDlg, BOOL fXMLTVFormat);
 void XMLTVExport(HWND hDlg, HANDLE hXMLFile);
 
-
-#ifdef PRO
-// Stuff in EITServer.c
-BOOL StartEITServer();
-BOOL TerminateEITServer();
 // TeletextSubs.c: teletext subtitle pages as DVB subtitles for the embedded ffplay
 void TtxSubs_Setup();
 BOOL TtxSubs_IsSourcePID(int nPID);
@@ -92,6 +87,13 @@ BOOL TtxSubs_HasSubtitlePages(int nPMTIndex, int nESIndex);
 int TtxSubs_GetPMTEntries(int nPID, BYTE * pBuffer);
 void TtxSubs_InputPacket(const BYTE * pPacket);
 int TtxSubs_Drain(BYTE * pDest, int nSpace);
+// DescriptorTool.c
+BOOL CALLBACK DescriptorToolDlgProc(HWND hDlg, UINT uMsg, WPARAM wParam, LPARAM lParam);
+
+#ifdef PRO
+// Stuff in EITServer.c
+BOOL StartEITServer();
+BOOL TerminateEITServer();
 int GetEITConnectionCount();
 
 // Stuff in CCDecoder.c
@@ -20077,6 +20079,9 @@ void ProcessMain_WM_COMMAND(HWND hWnd, WPARAM wParam, LPARAM lParam)
 		break;
 	case ID_SETTINGS_EITLANGUAGE:
 		DialogBox(v->hInstance, MAKEINTRESOURCE(IDD_EIT_LANGUAGE_SETTINGS), hWnd, EITLanguageSettingsDlgProc);
+		break;
+	case ID_VIEW_DESCRIPTORTOOL:		// not PRO-only, unlike the View tools below
+		DialogBox(v->hInstance, MAKEINTRESOURCE(IDD_DESCRIPTOR_TOOL), hWnd, DescriptorToolDlgProc);
 		break;
 #ifdef PRO
 	case ID_EXPORT_GPSSIGNALEXPORT:
