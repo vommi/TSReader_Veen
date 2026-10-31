@@ -2,6 +2,63 @@
 
 **Version 2.8.53h-memorial**
 
+## TSReader_Veen fork
+
+This fork of [TSReader/TSReader](https://github.com/TSReader/TSReader) adds
+tools for checking and documenting **DVB head-end installations**, and for
+**set-top box (STB) testing and development**.
+
+### Use case
+
+**Head-end checking and documentation.** The Auto TS Recorder records a short
+sample of every selected transport stream on a schedule or on demand, together
+with a CSV log of signal quality (MER, level, bitrate, continuity errors). This
+makes it easy to "document" a head end's output: record every TS before a
+change and again after it, then compare. While checking the video in the
+embedded FFmpeg player, the EPG can be verified at the same time: now/next
+under the picture, the full schedule beside it and the EPG grid one click
+away. The embedded player works well for this already, though it still needs
+some polishing.
+
+**STB testing and development.** The Descriptor Hex / Editor shows every
+descriptor of a stream as hex and lets you copy one, change it field by field
+or build a new one from scratch. Many re-multiplexing head ends accept
+descriptors in hex, so you can, for example, create special subtitling or audio
+descriptors and insert them into an output service to see how receivers handle
+them. Not every head end accepts hex descriptors.
+
+### What the fork adds
+
+- **Auto TS Recorder** (Record menu): scheduled or one-off passes over the
+  muxes of a channel plan, with lock checking and retries, a stabilize time,
+  fixed-length recordings, filename tokens, retention (keep last N, maximum
+  age), a free-space guard, a CSV log and an `-autorecord` command-line switch.
+- **DVB-C channel plans** for the tune dialog, including plans generated from a
+  network's NIT (cable delivery descriptors).
+- **DekTec DTU-236 source** (DVB-C/QAM and ASI) using the current DekTec DTAPI.
+- **Embedded FFmpeg player** (ffplay inside the TSReader window) with audio and
+  subtitle track menus, DVB subtitles, and **teletext subtitles** (TSReader
+  converts teletext subtitle pages to DVB subtitles for the player).
+- **EPG in the player**: now/next strip, schedule list and a button to the EPG
+  grid on the playing channel.
+- **EPG time source** (stream TDT/TOT, PC clock or a set time), so the EPG of
+  old recordings shows correctly, and an **EIT language** choice.
+- **Descriptor Hex / Editor** (View menu): every PMT, SDT, NIT, BAT, TOT and
+  EIT descriptor as hex in the format a head end expects, with a field-by-field
+  editor and builder for audio, subtitle, video and service-information
+  descriptors.
+- Smaller additions: present EIT event on thumbnails, recent sources first in
+  the source list, default player and default source settings, and fixes such
+  as upside-down thumbnails and off-screen windows.
+
+The installer for this fork is built with `installer_veen.iss` (output
+`installer_output\TSReader_Veen_Setup.exe`); it also includes the ffplay player
+and the channel plans.
+
+---
+
+*The rest of this README describes the upstream project.*
+
 TSReader is a Windows application for analysing MPEG Transport Streams.
 Originally developed circa 2004-2008 with Visual C++ 6.0 by Rod Hewitt
 KG6TTD (G6TTD), this codebase has been migrated to build with modern
